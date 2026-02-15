@@ -26,17 +26,16 @@ export const statusTiles = [
 ];
 
 export const quickStats = [
-  { label: 'Connected Devices', value: 24 },
-  { label: 'Operators Online', value: 6 },
-  { label: 'Alerts This Week', value: 4 },
-  { label: 'Peak Power Today', value: '4.1kW' }
+  { label: 'Connected Devices', value: 24, description: 'Devices currently paired with KRATOS' },
+  { label: 'Operators Online', value: 6, description: 'Active operator sessions right now' },
+  { label: 'Alerts This Week', value: 4, description: 'Incidents raised in the last 7 days' },
+  { label: 'Peak Power Today', value: '4.1kW', description: 'Highest instantaneous draw recorded' }
 ];
 
 export const devices = [
   { name: 'Main Lights', location: 'Lab', onTime: '08:20h', status: 'Active' },
   { name: 'Ventilation Fan', location: 'Classroom', onTime: '06:40h', status: 'Active' },
-  { name: 'Heater Unit A', location: 'Office', onTime: '03:15h', status: 'Inactive' },
-  { name: 'Water Pump', location: 'Utility', onTime: '01:05h', status: 'Fault' }
+  { name: 'Heater Unit A', location: 'Office', onTime: '03:15h', status: 'Inactive' }
 ];
 
 export const sensors = [
@@ -58,9 +57,9 @@ export const users = [
 ];
 
 export const energyComparisons = [
-  { label: 'Yesterday', usage: '38.4 kWh', compare: '+7% vs yesterday avg', positive: true },
-  { label: 'Last Week', usage: '249 kWh', compare: '-3% vs previous week', positive: false },
-  { label: 'Last Month', usage: '1,028 kWh', compare: '+5% vs previous month', positive: true }
+  { label: 'Yesterday', usage: '38.4 kWh', compare: '+7% vs yesterday avg', positive: true, description: '24-hour usage compared to historical daily baseline' },
+  { label: 'Last Week', usage: '249 kWh', compare: '-3% vs previous week', positive: false, description: '7-day usage compared to the week before' },
+  { label: 'Last Month', usage: '1,028 kWh', compare: '+5% vs previous month', positive: true, description: '30-day usage compared with prior monthly period' }
 ];
 
 export const weeklyEnergyCostData = [

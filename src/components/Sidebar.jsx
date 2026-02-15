@@ -27,7 +27,6 @@ export default function Sidebar({ collapsed }) {
         })}
       </nav>
       <div className="absolute bottom-5 left-3 right-3 space-y-2">
-        <button className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm text-gray-600 hover:bg-emerald-50"><Settings size={18} />{!collapsed && 'Settings'}</button>
         <button className="flex w-full items-center gap-3 rounded-xl border border-rose-200 px-3 py-2 text-sm text-rose-600"><LogOut size={18} />{!collapsed && 'Logout'}</button>
       </div>
     </aside>

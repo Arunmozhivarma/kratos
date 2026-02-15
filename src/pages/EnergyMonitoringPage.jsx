@@ -15,12 +15,14 @@ export default function EnergyMonitoringPage() {
             <p className="text-sm text-gray-500">{item.label}</p>
             <p className="text-2xl font-bold">{item.usage}</p>
             <p className={`text-sm ${item.positive ? 'text-emerald-600' : 'text-rose-600'}`}>{item.compare}</p>
+            <p className="mt-1 text-xs text-gray-500">{item.description}</p>
           </div>
         ))}
       </div>
 
       <div className="card-surface p-5">
-        <h3 className="mb-3 font-semibold">Power Trend</h3>
+        <h3 className="mb-1 font-semibold">Power Trend</h3>
+        <p className="mb-3 text-xs text-gray-500">Short-interval power usage trend for operational monitoring.</p>
         <div className="h-80">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={powerLineData}>

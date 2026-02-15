@@ -14,17 +14,18 @@ export default function AnalyticsPage() {
 
       <div className="grid gap-4 md:grid-cols-4">
         {[
-          ['Weekly Average', '91 kWh'],
-          ['Monthly Total', '2.8 MWh'],
-          ['Estimated Cost', '$840'],
-          ['Energy Saved So Far', '186 kWh']
-        ].map(([label, val]) => (
-          <div key={label} className="card-surface p-4"><p className="text-sm text-gray-500">{label}</p><p className="text-2xl font-bold">{val}</p></div>
+          ['Weekly Average', '91 kWh', 'Average daily usage in the latest week'],
+          ['Monthly Total', '2.8 MWh', 'Accumulated usage for the current month'],
+          ['Estimated Cost', '$840', 'Projected utility cost for this cycle'],
+          ['Energy Saved So Far', '186 kWh', 'Estimated savings from optimization rules']
+        ].map(([label, val, desc]) => (
+          <div key={label} className="card-surface p-4"><p className="text-sm text-gray-500">{label}</p><p className="text-2xl font-bold">{val}</p><p className="mt-1 text-xs text-gray-500">{desc}</p></div>
         ))}
       </div>
 
       <div className="card-surface p-5">
-        <h3 className="mb-3 font-semibold">Weekly Energy and Cost Analysis</h3>
+        <h3 className="mb-1 font-semibold">Weekly Energy and Cost Analysis</h3>
+        <p className="mb-3 text-xs text-gray-500">Compares each day’s energy usage and estimated cost.</p>
         <div className="h-80">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={weeklyEnergyCostData}>
@@ -38,7 +39,8 @@ export default function AnalyticsPage() {
       </div>
 
       <div className="card-surface p-5">
-        <h3 className="mb-3 font-semibold">Six Month Consumption Trend</h3>
+        <h3 className="mb-1 font-semibold">Six Month Consumption Trend</h3>
+        <p className="mb-3 text-xs text-gray-500">Shows longer-term monthly energy movement over six months.</p>
         <div className="h-80">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={sixMonthConsumptionData}>
@@ -52,7 +54,8 @@ export default function AnalyticsPage() {
 
       <div className="grid gap-4 md:grid-cols-2">
         <div className="card-surface p-5">
-          <h3 className="mb-3 font-semibold">Top Energy Consumer</h3>
+          <h3 className="mb-1 font-semibold">Top Energy Consumer</h3>
+          <p className="mb-3 text-xs text-gray-500">Device-level usage ranking by total consumed power.</p>
           <div className="space-y-3">
             {topEnergyConsumers.map((item) => (
               <div key={item.device}>
@@ -63,7 +66,8 @@ export default function AnalyticsPage() {
           </div>
         </div>
         <div className="card-surface p-5">
-          <h3 className="mb-3 font-semibold">Peak Usage Hour</h3>
+          <h3 className="mb-1 font-semibold">Peak Usage Hour</h3>
+          <p className="mb-3 text-xs text-gray-500">Time windows with the highest stored power demand.</p>
           <div className="space-y-3">
             {peakUsageHours.map((item) => (
               <div key={item.time}>

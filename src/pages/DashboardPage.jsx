@@ -20,9 +20,10 @@ export default function DashboardPage() {
       </div>
       <div className="space-y-6 xl:col-span-4">
         <div className="space-y-4">{statusTiles.map((tile) => <ZoneLiveTile key={tile.zone} tile={tile} />)}</div>
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">{quickStats.map((stat) => <StatCard key={stat.label} label={stat.label} value={stat.value} />)}</div>
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">{quickStats.map((stat) => <StatCard key={stat.label} label={stat.label} value={stat.value} description={stat.description} />)}</div>
         <div className="card-surface p-5">
           <h3 className="mb-4 font-semibold">Quick Device Control</h3>
+          <p className="mb-3 text-xs text-gray-500">Manual controls for priority devices and emergency shutdown.</p>
           <div className="space-y-3 text-sm">
             <div className="flex items-center justify-between"><span>Main Lights</span><ToggleSwitch checked={mainLights} onChange={setMainLights} /></div>
             <div className="flex items-center justify-between"><span>Ventilation Fan</span><ToggleSwitch checked={fan} onChange={setFan} /></div>
