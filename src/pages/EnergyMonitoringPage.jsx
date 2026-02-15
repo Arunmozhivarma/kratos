@@ -1,0 +1,18 @@
+import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { powerLineData } from '../data/mockData';
+
+export default function EnergyMonitoringPage() {
+  const cards = [['Current Power', '1.24 kW'], ['Voltage', '231 V'], ['Current', '5.4 A'], ['Energy Today', '38.4 kWh']];
+  const zones = [{ name: 'Lab', value: 78 }, { name: 'Classroom', value: 56 }, { name: 'Office', value: 42 }];
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold">Energy Monitoring</h1>
+        <button className="rounded-xl border border-emerald-200 px-4 py-2 text-sm text-emerald-700">Export</button>
+      </div>
+      <div className="grid gap-4 md:grid-cols-4">{cards.map(([l, v]) => <div key={l} className="card-surface p-4"><p className="text-sm text-gray-500">{l}</p><p className="text-2xl font-semibold">{v}</p></div>)}</div>
+      <div className="card-surface p-5"><h3 className="mb-3 font-semibold">Power (last 60 mins)</h3><div className="h-80"><ResponsiveContainer width="100%" height="100%"><LineChart data={powerLineData}><XAxis dataKey="minute" /><YAxis /><Tooltip /><Line type="monotone" dataKey="power" stroke="#22C55E" strokeWidth={3} dot={false} /></LineChart></ResponsiveContainer></div></div>
+      <div className="card-surface p-5"><h3 className="mb-4 font-semibold">Zone Breakdown</h3><div className="space-y-3">{zones.map((zone) => <div key={zone.name}><div className="mb-1 flex justify-between text-sm"><span>{zone.name}</span><span>{zone.value}%</span></div><div className="h-2 rounded-full bg-emerald-100"><div className="h-2 rounded-full bg-primary" style={{ width: `${zone.value}%` }} /></div></div>)}</div></div>
+    </div>
+  );
+}
