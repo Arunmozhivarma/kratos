@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import ToggleSwitch from '../components/ToggleSwitch';
+import { useTheme } from '../contexts/ThemeContext';
 
 export default function SettingsPage() {
+  const { theme, setTheme } = useTheme();
   const [form, setForm] = useState({
     systemName: 'KRATOS Energy System',
     timezone: 'UTC+00:00',
@@ -26,10 +28,17 @@ export default function SettingsPage() {
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="card-surface p-5">
           <h3 className="font-semibold">General Settings</h3>
-          <label className="mt-3 block text-sm text-gray-600">System Name</label>
-          <input value={form.systemName} onChange={(e) => setForm((p) => ({ ...p, systemName: e.target.value }))} className="mt-1 w-full rounded-xl border border-emerald-100 px-3 py-2" />
-          <label className="mt-3 block text-sm text-gray-600">Time Zone</label>
-          <select value={form.timezone} onChange={(e) => setForm((p) => ({ ...p, timezone: e.target.value }))} className="mt-1 w-full rounded-xl border border-emerald-100 px-3 py-2"><option>UTC+00:00</option><option>UTC+07:00</option></select>
+          <div className="mt-3 flex items-center justify-between border-b border-emerald-100 pb-3 dark:border-gray-600">
+            <div>
+              <p className="text-sm font-medium">Dark mode</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Switch between light and dark theme</p>
+            </div>
+            <ToggleSwitch checked={theme === 'dark'} onChange={(on) => setTheme(on ? 'dark' : 'light')} />
+          </div>
+          <label className="mt-3 block text-sm text-gray-600 dark:text-gray-400">System Name</label>
+          <input value={form.systemName} onChange={(e) => setForm((p) => ({ ...p, systemName: e.target.value }))} className="mt-1 w-full rounded-xl border border-emerald-100 px-3 py-2 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200" />
+          <label className="mt-3 block text-sm text-gray-600 dark:text-gray-400">Time Zone</label>
+          <select value={form.timezone} onChange={(e) => setForm((p) => ({ ...p, timezone: e.target.value }))} className="mt-1 w-full rounded-xl border border-emerald-100 px-3 py-2 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"><option>UTC+00:00</option><option>UTC+07:00</option></select>
         </div>
 
         <div className="card-surface p-5">
@@ -43,10 +52,10 @@ export default function SettingsPage() {
 
         <div className="card-surface p-5">
           <h3 className="font-semibold">Security</h3>
-          <div className="mt-3 space-y-2 text-sm text-gray-700">
-            <button className="w-full rounded-xl bg-gray-50 px-3 py-2 text-left">Change Password</button>
-            <button className="w-full rounded-xl bg-gray-50 px-3 py-2 text-left">Two-Factor Authentication</button>
-            <button className="w-full rounded-xl bg-gray-50 px-3 py-2 text-left">Session Management</button>
+          <div className="mt-3 space-y-2 text-sm">
+            <button className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2.5 text-left font-medium text-gray-800 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600">Change Password</button>
+            <button className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2.5 text-left font-medium text-gray-800 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600">Two-Factor Authentication</button>
+            <button className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2.5 text-left font-medium text-gray-800 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600">Session Management</button>
           </div>
         </div>
 
@@ -61,7 +70,7 @@ export default function SettingsPage() {
 
       <div className="flex items-center justify-end gap-3">
         {saved && <span className="text-sm text-emerald-600">Settings saved (UI only)</span>}
-        <button onClick={onSave} className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white">Save Changes</button>
+        <button onClick={onSave} className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white shadow-md transition hover:bg-emerald-600 dark:hover:bg-emerald-500">Save Changes</button>
       </div>
     </div>
   );

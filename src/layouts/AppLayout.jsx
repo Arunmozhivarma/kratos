@@ -6,7 +6,7 @@ import Navbar from '../components/Navbar';
 export default function AppLayout() {
   const [collapsed, setCollapsed] = useState(false);
   return (
-    <div className="flex min-h-screen bg-app-bg">
+    <div data-app-layout className="flex min-h-screen bg-[#F6FAF7] dark:bg-gray-900">
       <Sidebar collapsed={collapsed} />
       <div className="flex-1">
         <Navbar onToggleSidebar={() => setCollapsed((prev) => !prev)} />

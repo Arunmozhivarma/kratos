@@ -6,10 +6,18 @@ const icons = { LayoutDashboard, LineChart, Radar, SlidersHorizontal, BarChart3,
 
 export default function Sidebar({ collapsed }) {
   return (
-    <aside className={`sticky top-0 h-screen border-r border-emerald-100 bg-white px-3 py-4 transition-all duration-300 ${collapsed ? 'w-20' : 'w-64'}`}>
-      <div className="mb-8 px-2">
-        <p className="text-xl font-bold text-primary">KRATOS</p>
-        {!collapsed && <p className="text-xs text-gray-500">Energy System</p>}
+    <aside data-app-sidebar className={`sticky top-0 h-screen border-r border-emerald-100 bg-white px-3 py-4 transition-all duration-300 dark:border-gray-700 dark:bg-gray-800 ${collapsed ? 'w-20' : 'w-64'}`}>
+      <div className={`mb-8 flex items-center ${collapsed ? 'justify-center px-0' : 'px-2'}`}>
+        {collapsed ? (
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary text-lg font-bold text-white" title="KRATOS Energy System">
+            K
+          </div>
+        ) : (
+          <div>
+            <p className="text-xl font-bold text-primary">KRATOS</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">Energy System</p>
+          </div>
+        )}
       </div>
       <nav className="space-y-2">
         {navItems.map((item) => {
@@ -18,7 +26,7 @@ export default function Sidebar({ collapsed }) {
             <NavLink
               key={item.path}
               to={item.path}
-              className={({ isActive }) => `group flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition ${isActive ? 'border-l-4 border-primary bg-emerald-50 text-emerald-700' : 'text-gray-600 hover:bg-emerald-50'}`}
+              className={({ isActive }) => `group flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition ${isActive ? 'border-l-4 border-primary bg-emerald-50 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' : 'text-gray-700 hover:bg-emerald-50 dark:text-gray-300 dark:hover:bg-gray-700'}`}
             >
               <Icon size={18} />
               {!collapsed && <span className="font-medium">{item.name}</span>}
@@ -27,7 +35,7 @@ export default function Sidebar({ collapsed }) {
         })}
       </nav>
       <div className="absolute bottom-5 left-3 right-3 space-y-2">
-        <button className="flex w-full items-center gap-3 rounded-xl border border-rose-200 px-3 py-2 text-sm text-rose-600"><LogOut size={18} />{!collapsed && 'Logout'}</button>
+        <button className="flex w-full items-center gap-3 rounded-xl border border-rose-200 px-3 py-2 text-sm text-rose-600 dark:border-rose-800 dark:text-rose-400"><LogOut size={18} />{!collapsed && 'Logout'}</button>
       </div>
     </aside>
   );
