@@ -1,13 +1,11 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import AppLayout from './layouts/AppLayout';
-import AnalyticsPage from './pages/AnalyticsPage';
 import DashboardPage from './pages/DashboardPage';
 import DeviceControlPage from './pages/DeviceControlPage';
 import EnergyMonitoringPage from './pages/EnergyMonitoringPage';
 import HelpPage from './pages/HelpPage';
 import LoginPage from './pages/LoginPage';
 import SensorMonitoringPage from './pages/SensorMonitoringPage';
-import SettingsPage from './pages/SettingsPage';
 import UsersPage from './pages/UsersPage';
 
 export default function App() {
@@ -19,9 +17,7 @@ export default function App() {
         <Route path="energy" element={<EnergyMonitoringPage />} />
         <Route path="sensors" element={<SensorMonitoringPage />} />
         <Route path="devices" element={<DeviceControlPage />} />
-        <Route path="analytics" element={<AnalyticsPage />} />
         <Route path="users" element={<UsersPage />} />
-        <Route path="settings" element={<SettingsPage />} />
         <Route path="help" element={<HelpPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/login" replace />} />

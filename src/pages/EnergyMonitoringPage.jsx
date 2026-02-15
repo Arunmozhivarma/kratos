@@ -1,40 +1,8 @@
-import { energyCards } from '../data/mockData';
-import { Zap, TrendingUp, Clock3 } from 'lucide-react';
-
-const icons = [Zap, TrendingUp, Clock3];
+import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { powerLineData } from '../data/mockData';
 
 export default function EnergyMonitoringPage() {
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-5xl font-bold text-slate-900">Energy Monitoring</h1>
-        <p className="mt-1 text-3xl text-slate-600">Track and analyze energy consumption</p>
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-3">
-        {energyCards.map((card, idx) => {
-          const Icon = icons[idx];
-          return (
-            <div key={card.title} className="card-surface p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-3xl text-slate-600">{card.title}</p>
-                  <p className="text-6xl font-bold text-slate-900">{card.value}</p>
-                  <p className={`text-3xl ${idx === 2 ? 'text-rose-500' : 'text-emerald-600'}`}>{card.note}</p>
-                </div>
-                <div className={`grid h-20 w-20 place-items-center rounded-2xl ${idx === 0 ? 'bg-blue-100 text-blue-600' : idx === 1 ? 'bg-amber-100 text-amber-600' : 'bg-emerald-100 text-emerald-600'}`}>
-                  <Icon size={38} />
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      <div className="card-surface p-6">
-        <h3 className="text-4xl font-semibold">Energy Details</h3>
-        <p className="mt-2 text-3xl text-slate-500">Detailed energy monitoring charts and analytics will be displayed here.</p>
-      </div>
-    </div>
-  );
+  const cards = [['Current Power', '1.24 kW'], ['Voltage', '231 V'], ['Current', '5.4 A'], ['Energy Today', '38.4 kWh']];
+  const zones = [{ name: 'Lab', value: 78 }, { name: 'Classroom', value: 56 }, { name: 'Office', value: 42 }];
+  return <div className="space-y-6"><div className="flex items-center justify-between"><h1 className="text-2xl font-bold">Energy Monitoring</h1><button className="rounded-xl border border-emerald-200 px-4 py-2 text-sm text-emerald-700">Export</button></div><div className="grid gap-4 md:grid-cols-4">{cards.map(([l,v])=><div key={l} className="card-surface p-4"><p className="text-sm text-gray-500">{l}</p><p className="text-2xl font-semibold">{v}</p></div>)}</div><div className="card-surface p-5"><h3 className="mb-3 font-semibold">Power (last 60 mins)</h3><div className="h-80"><ResponsiveContainer width="100%" height="100%"><LineChart data={powerLineData}><XAxis dataKey="minute" /><YAxis /><Tooltip /><Line type="monotone" dataKey="power" stroke="#22C55E" strokeWidth={3} dot={false} /></LineChart></ResponsiveContainer></div></div><div className="card-surface p-5"><h3 className="mb-4 font-semibold">Zone Breakdown</h3><div className="space-y-3">{zones.map((zone)=><div key={zone.name}><div className="mb-1 flex justify-between text-sm"><span>{zone.name}</span><span>{zone.value}%</span></div><div className="h-2 rounded-full bg-emerald-100"><div className="h-2 rounded-full bg-primary" style={{width:`${zone.value}%`}} /></div></div>)}</div></div></div>;
 }

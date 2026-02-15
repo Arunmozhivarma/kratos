@@ -1,59 +1,35 @@
 import { NavLink } from 'react-router-dom';
-import {
-  BarChart3,
-  CircleHelp,
-  LayoutDashboard,
-  LogOut,
-  Monitor,
-  Radar,
-  Settings,
-  UsersRound,
-  Zap,
-  Bolt
-} from 'lucide-react';
+import { CircleHelp, LayoutDashboard, LineChart, LogOut, Radar, Settings, SlidersHorizontal, Users } from 'lucide-react';
 import { navItems } from '../data/mockData';
 
-const icons = { LayoutDashboard, Zap, Radar, Monitor, BarChart3, UsersRound, Settings, CircleHelp };
+const icons = { LayoutDashboard, LineChart, Radar, SlidersHorizontal, Users, CircleHelp };
 
 export default function Sidebar({ collapsed }) {
   return (
-    <aside className={`sticky top-0 h-screen border-r border-slate-800 bg-slate-950 text-slate-200 transition-all duration-300 ${collapsed ? 'w-24' : 'w-72'}`}>
-      <div className="flex h-full flex-col">
-        <div className="border-b border-slate-800 px-4 py-5">
-          <div className="flex items-center gap-3">
-            <div className="grid h-12 w-12 place-items-center rounded-xl bg-gradient-to-br from-cyan-500 to-emerald-500 text-white">
-              <Bolt size={22} />
-            </div>
-            {!collapsed && (
-              <div>
-                <p className="text-3xl font-bold text-white">KRATOS</p>
-                <p className="text-sm text-slate-400">Energy System</p>
-              </div>
-            )}
-          </div>
-        </div>
-
-        <nav className="flex-1 space-y-2 p-3">
-          {navItems.map((item) => {
-            const Icon = icons[item.icon];
-            return (
-              <NavLink
-                key={item.path}
-                to={item.path}
-                className={({ isActive }) => `flex items-center gap-3 rounded-xl px-4 py-3 transition ${isActive ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-900'}`}
-              >
-                <Icon size={20} />
-                {!collapsed && <span className="text-xl font-medium">{item.name}</span>}
-              </NavLink>
-            );
-          })}
-        </nav>
-
-        <div className="border-t border-slate-800 p-3">
-          <button className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-slate-300 hover:bg-slate-900">
-            <LogOut size={20} /> {!collapsed && <span className="text-xl">Logout</span>}
-          </button>
-        </div>
+    <aside className={`sticky top-0 h-screen border-r border-emerald-100 bg-white px-3 py-4 transition-all duration-300 ${collapsed ? 'w-20' : 'w-64'}`}>
+      <div className="mb-8 px-2">
+        <p className="text-xl font-bold text-primary">KRATOS</p>
+        {!collapsed && <p className="text-xs text-gray-500">Energy System</p>}
+      </div>
+      <nav className="space-y-2">
+        {navItems.map((item) => {
+          const Icon = icons[item.icon];
+          return (
+            <NavLink
+              key={item.path}
+              to={item.path}
+              className={({ isActive }) => `group flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition ${isActive ? 'border-l-4 border-primary bg-emerald-50 text-emerald-700' : 'text-gray-600 hover:bg-emerald-50'}`}
+            >
+              <Icon size={18} />
+              {!collapsed && <span className="font-medium">{item.name}</span>}
+            </NavLink>
+          );
+        })}
+      </nav>
+      <div className="absolute bottom-5 left-3 right-3 space-y-2">
+        <button className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm text-gray-600 hover:bg-emerald-50"><Settings size={18} />{!collapsed && 'Settings'}</button>
+        <button className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm text-gray-600 hover:bg-emerald-50"><CircleHelp size={18} />{!collapsed && 'Help'}</button>
+        <button className="flex w-full items-center gap-3 rounded-xl border border-rose-200 px-3 py-2 text-sm text-rose-600"><LogOut size={18} />{!collapsed && 'Logout'}</button>
       </div>
     </aside>
   );
