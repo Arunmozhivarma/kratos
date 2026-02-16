@@ -2,66 +2,80 @@ import { useState, useMemo } from 'react';
 import ToggleSwitch from '../components/ToggleSwitch';
 import RoomVisualization from '../components/RoomVisualization';
 
-// Room configurations with different layouts
+// Lab configurations organized by E Block floors
 const roomConfigurations = {
-  livingRoom: {
-    id: 'livingRoom',
-    name: 'Living Room',
+  // E Block 1st Floor Labs
+  lab1: {
+    id: 'lab1',
+    name: 'Lab 1 - E Block 1st Floor',
     devices: [
-      { id: 'lr-light1', name: 'Main Light 1', type: 'light', position: { x: 100, y: 80 } },
-      { id: 'lr-light2', name: 'Main Light 2', type: 'light', position: { x: 300, y: 80 } },
-      { id: 'lr-fan1', name: 'Center Fan', type: 'fan', position: { x: 200, y: 150 } },
-      { id: 'lr-fan2', name: 'Side Fan', type: 'fan', position: { x: 100, y: 200 } },
-      { id: 'lr-light3', name: 'Reading Light', type: 'light', position: { x: 300, y: 200 } },
-      { id: 'lr-fan3', name: 'Corner Fan', type: 'fan', position: { x: 350, y: 250 } },
+      { id: 'l1-light1', name: 'Main Light 1', type: 'light', position: { x: 100, y: 80 } },
+      { id: 'l1-light2', name: 'Main Light 2', type: 'light', position: { x: 300, y: 80 } },
+      { id: 'l1-fan1', name: 'Exhaust Fan 1', type: 'fan', position: { x: 200, y: 150 } },
+      { id: 'l1-fan2', name: 'Exhaust Fan 2', type: 'fan', position: { x: 100, y: 200 } },
+      { id: 'l1-light3', name: 'Workbench Light', type: 'light', position: { x: 300, y: 200 } },
+      { id: 'l1-fan3', name: 'Corner Fan', type: 'fan', position: { x: 350, y: 250 } },
     ],
   },
-  bedroom: {
-    id: 'bedroom',
-    name: 'Bedroom',
+  lab2: {
+    id: 'lab2',
+    name: 'Lab 2 - E Block 1st Floor',
     devices: [
-      { id: 'br-light1', name: 'Bedside Light 1', type: 'light', position: { x: 100, y: 100 } },
-      { id: 'br-light2', name: 'Bedside Light 2', type: 'light', position: { x: 300, y: 100 } },
-      { id: 'br-fan1', name: 'Main Fan', type: 'fan', position: { x: 200, y: 150 } },
-      { id: 'br-fan2', name: 'Dressing Fan', type: 'fan', position: { x: 100, y: 220 } },
-      { id: 'br-light3', name: 'Dressing Light', type: 'light', position: { x: 300, y: 220 } },
-      { id: 'br-fan3', name: 'Corner Fan', type: 'fan', position: { x: 350, y: 80 } },
+      { id: 'l2-light1', name: 'Ceiling Light 1', type: 'light', position: { x: 100, y: 100 } },
+      { id: 'l2-light2', name: 'Ceiling Light 2', type: 'light', position: { x: 300, y: 100 } },
+      { id: 'l2-fan1', name: 'Main Exhaust Fan', type: 'fan', position: { x: 200, y: 150 } },
+      { id: 'l2-fan2', name: 'Side Exhaust Fan', type: 'fan', position: { x: 100, y: 220 } },
+      { id: 'l2-light3', name: 'Equipment Light', type: 'light', position: { x: 300, y: 220 } },
+      { id: 'l2-fan3', name: 'Ventilation Fan', type: 'fan', position: { x: 350, y: 80 } },
     ],
   },
-  kitchen: {
-    id: 'kitchen',
-    name: 'Kitchen',
+  lab3: {
+    id: 'lab3',
+    name: 'Lab 3 - E Block 1st Floor',
     devices: [
-      { id: 'kt-light1', name: 'Ceiling Light 1', type: 'light', position: { x: 100, y: 80 } },
-      { id: 'kt-light2', name: 'Ceiling Light 2', type: 'light', position: { x: 300, y: 80 } },
-      { id: 'kt-fan1', name: 'Dining Fan', type: 'fan', position: { x: 200, y: 150 } },
-      { id: 'kt-fan2', name: 'Cooking Fan', type: 'fan', position: { x: 80, y: 220 } },
-      { id: 'kt-light3', name: 'Counter Light', type: 'light', position: { x: 300, y: 220 } },
-      { id: 'kt-fan3', name: 'Island Fan', type: 'fan', position: { x: 350, y: 150 } },
+      { id: 'l3-light1', name: 'Lab Light 1', type: 'light', position: { x: 100, y: 80 } },
+      { id: 'l3-light2', name: 'Lab Light 2', type: 'light', position: { x: 300, y: 80 } },
+      { id: 'l3-fan1', name: 'Central Fan', type: 'fan', position: { x: 200, y: 150 } },
+      { id: 'l3-fan2', name: 'Equipment Fan', type: 'fan', position: { x: 80, y: 220 } },
+      { id: 'l3-light3', name: 'Safety Light', type: 'light', position: { x: 300, y: 220 } },
+      { id: 'l3-fan3', name: 'Emergency Fan', type: 'fan', position: { x: 350, y: 150 } },
     ],
   },
-  office: {
-    id: 'office',
-    name: 'Home Office',
+  // E Block 3rd Floor Labs
+  lab4: {
+    id: 'lab4',
+    name: 'Lab 4 - E Block 3rd Floor',
     devices: [
-      { id: 'of-light1', name: 'Desk Light', type: 'light', position: { x: 150, y: 100 } },
-      { id: 'of-light2', name: 'Ceiling Light', type: 'light', position: { x: 300, y: 100 } },
-      { id: 'of-fan1', name: 'Main Fan', type: 'fan', position: { x: 200, y: 150 } },
-      { id: 'of-fan2', name: 'Window Fan', type: 'fan', position: { x: 100, y: 200 } },
-      { id: 'of-light3', name: 'Shelf Light', type: 'light', position: { x: 300, y: 200 } },
-      { id: 'of-fan3', name: 'Corner Fan', type: 'fan', position: { x: 350, y: 80 } },
+      { id: 'l4-light1', name: 'Research Light 1', type: 'light', position: { x: 150, y: 100 } },
+      { id: 'l4-light2', name: 'Research Light 2', type: 'light', position: { x: 300, y: 100 } },
+      { id: 'l4-fan1', name: 'Main Exhaust', type: 'fan', position: { x: 200, y: 150 } },
+      { id: 'l4-fan2', name: 'Window Fan', type: 'fan', position: { x: 100, y: 200 } },
+      { id: 'l4-light3', name: 'Storage Light', type: 'light', position: { x: 300, y: 200 } },
+      { id: 'l4-fan3', name: 'Corner Exhaust', type: 'fan', position: { x: 350, y: 80 } },
     ],
   },
-  mediaRoom: {
-    id: 'mediaRoom',
-    name: 'Media Room',
+  lab5: {
+    id: 'lab5',
+    name: 'Lab 5 - E Block 3rd Floor',
     devices: [
-      { id: 'mr-light1', name: 'Ambient Light 1', type: 'light', position: { x: 100, y: 80 } },
-      { id: 'mr-light2', name: 'Ambient Light 2', type: 'light', position: { x: 300, y: 80 } },
-      { id: 'mr-fan1', name: 'Main Fan', type: 'fan', position: { x: 200, y: 150 } },
-      { id: 'mr-fan2', name: 'Side Fan 1', type: 'fan', position: { x: 100, y: 200 } },
-      { id: 'mr-fan3', name: 'Side Fan 2', type: 'fan', position: { x: 300, y: 200 } },
-      { id: 'mr-light3', name: 'Backlight', type: 'light', position: { x: 200, y: 250 } },
+      { id: 'l5-light1', name: 'Analysis Light 1', type: 'light', position: { x: 100, y: 80 } },
+      { id: 'l5-light2', name: 'Analysis Light 2', type: 'light', position: { x: 300, y: 80 } },
+      { id: 'l5-fan1', name: 'Fume Hood Fan 1', type: 'fan', position: { x: 200, y: 150 } },
+      { id: 'l5-fan2', name: 'Fume Hood Fan 2', type: 'fan', position: { x: 100, y: 200 } },
+      { id: 'l5-fan3', name: 'General Fan', type: 'fan', position: { x: 300, y: 200 } },
+      { id: 'l5-light3', name: 'Back Light', type: 'light', position: { x: 200, y: 250 } },
+    ],
+  },
+  lab6: {
+    id: 'lab6',
+    name: 'Lab 6 - E Block 3rd Floor',
+    devices: [
+      { id: 'l6-light1', name: 'Computer Lab Light 1', type: 'light', position: { x: 100, y: 80 } },
+      { id: 'l6-light2', name: 'Computer Lab Light 2', type: 'light', position: { x: 300, y: 80 } },
+      { id: 'l6-fan1', name: 'Server Room Fan', type: 'fan', position: { x: 200, y: 150 } },
+      { id: 'l6-fan2', name: 'AC Unit Fan 1', type: 'fan', position: { x: 100, y: 200 } },
+      { id: 'l6-fan3', name: 'AC Unit Fan 2', type: 'fan', position: { x: 300, y: 200 } },
+      { id: 'l6-light3', name: 'Emergency Light', type: 'light', position: { x: 200, y: 250 } },
     ],
   },
 };
@@ -84,18 +98,18 @@ const initializeDevices = () => {
 
 export default function DeviceControlPage() {
   const [devices, setDevices] = useState(initializeDevices());
-  const [selectedRoom, setSelectedRoom] = useState('livingRoom');
-  
+  const [selectedRoom, setSelectedRoom] = useState('lab1');
+
   const currentRoom = roomConfigurations[selectedRoom];
-  const roomDevices = useMemo(() => 
+  const roomDevices = useMemo(() =>
     devices.filter(device => device.zone === currentRoom.name),
     [devices, currentRoom.name]
   );
 
   const toggleDevice = (deviceId, newState) => {
-    setDevices(prevDevices => 
-      prevDevices.map(device => 
-        device.id === deviceId 
+    setDevices(prevDevices =>
+      prevDevices.map(device =>
+        device.id === deviceId
           ? { ...device, enabled: newState, status: newState ? 'Active' : 'Inactive' }
           : device
       )
@@ -103,9 +117,9 @@ export default function DeviceControlPage() {
   };
 
   const toggleDeviceByName = (deviceName, newState) => {
-    setDevices(prevDevices => 
-      prevDevices.map(device => 
-        device.name === deviceName 
+    setDevices(prevDevices =>
+      prevDevices.map(device =>
+        device.name === deviceName
           ? { ...device, enabled: newState, status: newState ? 'Active' : 'Inactive' }
           : device
       )
@@ -113,7 +127,7 @@ export default function DeviceControlPage() {
   };
 
   // Group all devices by zone for the device list
-  const devicesByZone = useMemo(() => 
+  const devicesByZone = useMemo(() =>
     devices.reduce((acc, device) => {
       if (!acc[device.zone]) {
         acc[device.zone] = [];
@@ -128,14 +142,14 @@ export default function DeviceControlPage() {
     <div className="space-y-8 p-4">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-emerald-700">Smart Home Control</h1>
-          <p className="text-gray-600">Manage your home devices and lighting</p>
+          <h1 className="text-3xl font-bold text-emerald-700">Lab Control System</h1>
+          <p className="text-gray-600">Manage lab equipment and environmental controls</p>
         </div>
-        
-        {/* Room Selector */}
+
+        {/* Lab Selector */}
         <div className="w-full md:w-64">
           <label htmlFor="room-select" className="block text-sm font-medium text-gray-700 mb-1">
-            Select Room
+            Select Lab
           </label>
           <select
             id="room-select"
@@ -151,25 +165,25 @@ export default function DeviceControlPage() {
           </select>
         </div>
       </div>
-      
-      {/* Room Visualization */}
+
+      {/* Lab Visualization */}
       <div className="card-surface p-6">
         <h2 className="text-xl font-semibold mb-4 text-emerald-800">
-          {currentRoom.name} - Device Layout
+          {currentRoom.name} - Equipment Layout
         </h2>
         <div className="bg-gray-50 p-4 rounded-lg">
-          <RoomVisualization 
+          <RoomVisualization
             room={currentRoom}
             devices={roomDevices}
-            onToggleDevice={toggleDevice} 
+            onToggleDevice={toggleDevice}
           />
         </div>
       </div>
 
-      {/* Device Controls for Current Room */}
+      {/* Equipment Controls for Current Lab */}
       <div className="card-surface p-6">
         <h2 className="text-xl font-semibold mb-4 text-emerald-800">
-          {currentRoom.name} - Device Controls
+          {currentRoom.name} - Equipment Controls
         </h2>
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {roomDevices.map((device) => (
@@ -178,17 +192,16 @@ export default function DeviceControlPage() {
                 <div>
                   <h3 className="font-semibold text-gray-800">{device.name}</h3>
                   <div className="flex items-center mt-1">
-                    <span className={`inline-block w-2 h-2 rounded-full mr-2 ${
-                      device.enabled ? 'bg-emerald-500' : 'bg-gray-400'
-                    }`}></span>
+                    <span className={`inline-block w-2 h-2 rounded-full mr-2 ${device.enabled ? 'bg-emerald-500' : 'bg-gray-400'
+                      }`}></span>
                     <span className="text-sm text-gray-600">
                       {device.enabled ? 'Active' : 'Inactive'}
                     </span>
                   </div>
                 </div>
-                <ToggleSwitch 
-                  checked={device.enabled} 
-                  onChange={(val) => toggleDevice(device.id, val)} 
+                <ToggleSwitch
+                  checked={device.enabled}
+                  onChange={(val) => toggleDevice(device.id, val)}
                   id={`toggle-${device.id}`}
                 />
               </div>
@@ -211,7 +224,7 @@ export default function DeviceControlPage() {
           ))}
         </div>
       </div>
-      
+
       {/* All Devices List */}
       <div className="card-surface p-6">
         <h2 className="text-xl font-semibold mb-4 text-emerald-800">All Devices</h2>
@@ -225,17 +238,16 @@ export default function DeviceControlPage() {
                     <div>
                       <h3 className="font-semibold text-gray-800">{device.name}</h3>
                       <div className="flex items-center mt-1">
-                        <span className={`inline-block w-2 h-2 rounded-full mr-2 ${
-                          device.enabled ? 'bg-emerald-500' : 'bg-gray-400'
-                        }`}></span>
+                        <span className={`inline-block w-2 h-2 rounded-full mr-2 ${device.enabled ? 'bg-emerald-500' : 'bg-gray-400'
+                          }`}></span>
                         <span className="text-sm text-gray-600">
                           {device.enabled ? 'Active' : 'Inactive'}
                         </span>
                       </div>
                     </div>
-                    <ToggleSwitch 
-                      checked={device.enabled} 
-                      onChange={(val) => toggleDevice(device.id, val)} 
+                    <ToggleSwitch
+                      checked={device.enabled}
+                      onChange={(val) => toggleDevice(device.id, val)}
                       id={`toggle-all-${device.id}`}
                     />
                   </div>

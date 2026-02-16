@@ -1,8 +1,8 @@
 import { NavLink } from 'react-router-dom';
-import { BarChart3, CircleHelp, LayoutDashboard, LineChart, LogOut, Radar, Settings, SlidersHorizontal, Users } from 'lucide-react';
+import { BarChart3, CircleHelp, LayoutDashboard, LineChart, LogOut, Settings, SlidersHorizontal, Users } from 'lucide-react';
 import { navItems } from '../data/mockData';
 
-const icons = { LayoutDashboard, LineChart, Radar, SlidersHorizontal, BarChart3, Users, Settings, CircleHelp };
+const icons = { LayoutDashboard, LineChart, SlidersHorizontal, BarChart3, Users, Settings, CircleHelp };
 
 export default function Sidebar({ collapsed }) {
   return (

@@ -1,7 +1,6 @@
 export const navItems = [
   { name: 'Dashboard', path: '/app/dashboard', icon: 'LayoutDashboard' },
   { name: 'Energy Monitoring', path: '/app/energy', icon: 'LineChart' },
-  { name: 'Sensor Monitoring', path: '/app/sensors', icon: 'Radar' },
   { name: 'Device Control', path: '/app/devices', icon: 'SlidersHorizontal' },
   { name: 'Analytics / Report', path: '/app/analytics', icon: 'BarChart3' },
   { name: 'Users', path: '/app/users', icon: 'Users' },
@@ -10,9 +9,8 @@ export const navItems = [
 ];
 
 export const energyDailyData = [
-  { day: 'D-9', usage: 24 }, { day: 'D-8', usage: 31 }, { day: 'D-7', usage: 27 }, { day: 'D-6', usage: 35 },
-  { day: 'D-5', usage: 28 }, { day: 'D-4', usage: 33 }, { day: 'D-3', usage: 29 }, { day: 'D-2', usage: 36 },
-  { day: 'D-1', usage: 34 }, { day: 'Today', usage: 35 }
+  { day: 'Mon', usage: 24 }, { day: 'Tue', usage: 31 }, { day: 'Wed', usage: 27 }, { day: 'Thu', usage: 35 },
+  { day: 'Fri', usage: 28 }, { day: 'Sat', usage: 33 }, { day: 'Sun', usage: 29 }
 ];
 
 export const powerLineData = Array.from({ length: 12 }).map((_, i) => ({

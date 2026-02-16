@@ -4,8 +4,7 @@ import EnergyChartCard from '../components/EnergyChartCard';
 import StatCard from '../components/StatCard';
 import SummaryCard from '../components/SummaryCard';
 import ToggleSwitch from '../components/ToggleSwitch';
-import ZoneLiveTile from '../components/ZoneLiveTile';
-import { devices, energyDailyData, quickStats, statusTiles } from '../data/mockData';
+import { devices, energyDailyData, quickStats } from '../data/mockData';
 
 export default function DashboardPage() {
   const [mainLights, setMainLights] = useState(true);
@@ -19,7 +18,6 @@ export default function DashboardPage() {
         <DevicesTable devices={devices} />
       </div>
       <div className="space-y-6 xl:col-span-4">
-        <div className="space-y-4">{statusTiles.map((tile) => <ZoneLiveTile key={tile.zone} tile={tile} />)}</div>
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">{quickStats.map((stat) => <StatCard key={stat.label} label={stat.label} value={stat.value} />)}</div>
         <div className="card-surface p-5">
           <h3 className="mb-4 font-semibold">Quick Device Control</h3>
