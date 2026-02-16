@@ -23,7 +23,7 @@ export default function DashboardPage() {
           <h3 className="mb-4 font-semibold">Quick Device Control</h3>
           <div className="space-y-3 text-sm">
             <div className="flex items-center justify-between"><span>Main Lights</span><ToggleSwitch checked={mainLights} onChange={setMainLights} /></div>
-            <div className="flex items-center justify-between"><span>Ventilation Fan</span><ToggleSwitch checked={fan} onChange={setFan} /></div>
+            <div className="flex items-center justify-between"><span>Fan</span><ToggleSwitch checked={fan} onChange={setFan} /></div>
           </div>
           <button onClick={() => { setMainLights(false); setFan(false); }} className="mt-4 w-full rounded-xl border border-rose-300 px-3 py-2 text-sm font-medium text-rose-600">Emergency OFF</button>
           <p className="mt-2 text-xs text-gray-500">Manual override enabled</p>

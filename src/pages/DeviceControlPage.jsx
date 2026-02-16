@@ -26,7 +26,7 @@ const roomConfigurations = {
       { id: 'l2-fan1', name: 'Main Exhaust Fan', type: 'fan', position: { x: 200, y: 150 } },
       { id: 'l2-fan2', name: 'Side Exhaust Fan', type: 'fan', position: { x: 100, y: 220 } },
       { id: 'l2-light3', name: 'Equipment Light', type: 'light', position: { x: 300, y: 220 } },
-      { id: 'l2-fan3', name: 'Ventilation Fan', type: 'fan', position: { x: 350, y: 80 } },
+      { id: 'l2-fan3', name: 'Fan', type: 'fan', position: { x: 350, y: 80 } },
     ],
   },
   lab3: {

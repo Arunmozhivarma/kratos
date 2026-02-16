@@ -1,5 +1,5 @@
 export default function SummaryCard() {
-  const stats = [['Current Power', '1,240W'], ['Energy Today', '38.4 kWh'], ['Active Devices', '18'], ['Occupancy (Est.)', '12']];
+  const stats = [['Current Power', '1,240W'], ['Energy Today', '38.4 kWh'], ['Active Devices', '18']];
   return (
     <div className="summary-card card-surface rounded-3xl bg-gradient-to-br from-white to-emerald-50 p-6 dark:from-gray-800 dark:to-gray-800/90">
       <h1 className="text-2xl font-bold text-gray-900">Welcome</h1>

@@ -32,7 +32,7 @@ export const quickStats = [
 
 export const devices = [
   { name: 'Main Lights', location: 'Lab', onTime: '08:20h', status: 'Active' },
-  { name: 'Ventilation Fan', location: 'Classroom', onTime: '06:40h', status: 'Active' },
+  { name: 'Fan', location: 'Classroom', onTime: '06:40h', status: 'Active' },
   { name: 'Heater Unit A', location: 'Office', onTime: '03:15h', status: 'Inactive' }
 ];
 
