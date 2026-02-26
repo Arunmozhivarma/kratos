@@ -1,10 +1,16 @@
-import { NavLink } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 import { BarChart3, CircleHelp, LayoutDashboard, LineChart, LogOut, Settings, SlidersHorizontal, Users } from 'lucide-react';
 import { navItems } from '../data/mockData';
 
 const icons = { LayoutDashboard, LineChart, SlidersHorizontal, BarChart3, Users, Settings, CircleHelp };
 
 export default function Sidebar({ collapsed }) {
+  const navigate = useNavigate();
+
+  const handleLogout = () => {
+    navigate('/login');
+  };
+
   return (
     <aside data-app-sidebar className={`sticky top-0 h-screen border-r border-emerald-100 bg-white px-3 py-4 transition-all duration-300 dark:border-gray-700 dark:bg-gray-800 ${collapsed ? 'w-20' : 'w-64'}`}>
       <div className={`mb-8 flex items-center ${collapsed ? 'justify-center px-0' : 'px-2'}`}>
@@ -35,7 +41,13 @@ export default function Sidebar({ collapsed }) {
         })}
       </nav>
       <div className="absolute bottom-5 left-3 right-3 space-y-2">
-        <button className="flex w-full items-center gap-3 rounded-xl border border-rose-200 px-3 py-2 text-sm text-rose-600 dark:border-rose-800 dark:text-rose-400"><LogOut size={18} />{!collapsed && 'Logout'}</button>
+        <button
+          onClick={handleLogout}
+          className="flex w-full items-center gap-3 rounded-xl border border-rose-200 px-3 py-2 text-sm text-rose-600 dark:border-rose-800 dark:text-rose-400"
+        >
+          <LogOut size={18} />
+          {!collapsed && 'Logout'}
+        </button>
       </div>
     </aside>
   );
