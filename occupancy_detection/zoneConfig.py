@@ -1,5 +1,6 @@
 import cv2
 import json
+import platform
 
 zones = {}
 drawing = False
@@ -29,7 +30,11 @@ def mouse_callback(event, x, y, flags, param):
             print("No Fan ID set. Press 'n' first.")
 
 
-cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+if platform.system() == "Windows":
+    cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+else:
+    cap = cv2.VideoCapture(0)
+
 cv2.namedWindow("Zone Config")
 cv2.setMouseCallback("Zone Config", mouse_callback)
 

@@ -1,6 +1,7 @@
 from ultralytics import YOLO
 import cv2
 import json
+import platform
 
 # Load zones
 with open("zones.json", "r") as f:
@@ -9,7 +10,10 @@ with open("zones.json", "r") as f:
 # Load YOLO model
 model = YOLO("yolov8n.pt")
 
-cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+if platform.system() == "Windows":
+    cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+else:
+    cap = cv2.VideoCapture(0)
 
 while True:
     ret, frame = cap.read()
