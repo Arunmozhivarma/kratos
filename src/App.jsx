@@ -10,11 +10,13 @@ import UsersPage from './pages/UsersPage';
 import AnalyticsPage from './pages/AnalyticsPage';
 import ProfilePage from './pages/ProfilePage';
 import SettingsPage from './pages/SettingsPage';
+import LabSelectionPage from './pages/LabSelectionPage';
 
 export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/lab-select" element={<LabSelectionPage />} />
       <Route path="/app" element={<AppLayout />}>
         <Route path="dashboard" element={<DashboardPage />} />
         <Route path="energy" element={<EnergyMonitoringPage />} />
