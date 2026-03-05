@@ -154,7 +154,7 @@ export default function LoginPage() {
           <>
             <input
               required
-              placeholder="Username"
+              placeholder="Username or Email ID"
               className="mb-3 w-full rounded-xl border border-emerald-100 px-4 py-2.5 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400"
             />
             <select
