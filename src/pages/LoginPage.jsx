@@ -1,23 +1,70 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import {
+  clearLabSelection,
+  setSelectedDepartment,
+} from '../data/labs';
+
+const DEPARTMENTS = [
+  'Apparel & Fashion Design',
+  'Applied Mathematics & Computational Sciences',
+  'Applied Science',
+  'Automobile Engineering',
+  'Biotechnology',
+  'Biomedical Engineering',
+  'Chemistry',
+  'Civil Engineering',
+  'Computer Science & Engineering',
+  'Electronics & Communication Engineering',
+  'Electrical & Electronics Engineering',
+  'English',
+  'Fashion Technology',
+  'Humanities',
+  'Instrumentation & Control Systems Engineering',
+  'Information Technology',
+  'Mathematics',
+  'Computer Applications',
+  'Mechanical Engineering',
+  'Metallurgical Engineering',
+  'Physics',
+  'Production Engineering',
+  'Robotics & Automation Engineering',
+  'Textile Technology',
+  'Management Sciences',
+  'Library',
+  'Physical Education',
+  'Network Maintenance Cell',
+  'Computer Maintenance Cell',
+  'Power House',
+  'Main Office',
+  'Accounts Section',
+  'Academic Section',
+];
 
 export default function LoginPage() {
   const navigate = useNavigate();
   const [mode, setMode] = useState('login'); // 'login' or 'signup'
+  const [department, setDepartment] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
 
   const onSubmit = (event) => {
     event.preventDefault();
+    if (!department) {
+      setError('Please select your department.');
+      return;
+    }
+
     if (mode === 'signup' && password !== confirmPassword) {
       setError('Passwords do not match.');
       return;
     }
 
     setError('');
-    // For now, both login and signup just navigate into the app
-    navigate('/app/dashboard');
+    setSelectedDepartment(department);
+    clearLabSelection();
+    navigate('/lab-select');
   };
 
   return (
@@ -63,6 +110,19 @@ export default function LoginPage() {
               placeholder="Username"
               className="mb-3 w-full rounded-xl border border-emerald-100 px-4 py-2.5 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400"
             />
+            <select
+              required
+              className="mb-3 w-full rounded-xl border border-emerald-100 bg-white px-4 py-2.5 text-gray-700 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+              value={department}
+              onChange={(e) => setDepartment(e.target.value)}
+            >
+              <option value="">Select Department</option>
+              {DEPARTMENTS.map((departmentName) => (
+                <option key={departmentName} value={departmentName}>
+                  {departmentName}
+                </option>
+              ))}
+            </select>
             <input
               required
               type="email"
@@ -97,6 +157,19 @@ export default function LoginPage() {
               placeholder="Username"
               className="mb-3 w-full rounded-xl border border-emerald-100 px-4 py-2.5 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400"
             />
+            <select
+              required
+              className="mb-3 w-full rounded-xl border border-emerald-100 bg-white px-4 py-2.5 text-gray-700 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+              value={department}
+              onChange={(e) => setDepartment(e.target.value)}
+            >
+              <option value="">Select Department</option>
+              {DEPARTMENTS.map((departmentName) => (
+                <option key={departmentName} value={departmentName}>
+                  {departmentName}
+                </option>
+              ))}
+            </select>
             <input
               required
               type="password"
