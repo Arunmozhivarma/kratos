@@ -3,6 +3,7 @@ const dotenv = require("dotenv");
 const { Pool } = require("pg");
 
 dotenv.config({ path: path.join(__dirname, "..", ".env"), quiet: true });
+const DB_SCHEMA = (process.env.DB_SCHEMA || "public").replace(/[^a-zA-Z0-9_]/g, "");
 
 const pool = new Pool({
   host: process.env.DB_HOST,
@@ -10,6 +11,9 @@ const pool = new Pool({
   database: process.env.DB_NAME,
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
+  ssl: (process.env.DB_SSL || "true").toLowerCase() !== "false"
+    ? { rejectUnauthorized: false }
+    : false,
 });
 
 function buildDummyValues(labId) {
@@ -31,9 +35,9 @@ async function main() {
     await client.query("BEGIN");
 
     await client.query(`
-      CREATE TABLE IF NOT EXISTS kratos.lab_audit_values (
+      CREATE TABLE IF NOT EXISTS ${DB_SCHEMA}.lab_audit_values (
         audit_id BIGSERIAL PRIMARY KEY,
-        lab_id BIGINT NOT NULL REFERENCES kratos.labs(lab_id) ON DELETE CASCADE,
+        lab_id BIGINT NOT NULL REFERENCES ${DB_SCHEMA}.labs(lab_id) ON DELETE CASCADE,
         audit_date DATE NOT NULL DEFAULT CURRENT_DATE,
         energy_kwh NUMERIC(10,2) NOT NULL,
         occupancy_avg_pct NUMERIC(5,2) NOT NULL,
@@ -49,7 +53,7 @@ async function main() {
 
     const deptResult = await client.query(
       `SELECT department_id
-       FROM kratos.departments
+       FROM ${DB_SCHEMA}.departments
        WHERE name::text = 'Computer Science & Engineering'
        LIMIT 1`
     );
@@ -61,7 +65,7 @@ async function main() {
     const cseDepartmentId = deptResult.rows[0].department_id;
 
     await client.query(
-      `INSERT INTO kratos.labs (department_id, name, is_active)
+      `INSERT INTO ${DB_SCHEMA}.labs (department_id, name, is_active)
        VALUES ($1, 'ABC Lab', true)
        ON CONFLICT DO NOTHING`,
       [cseDepartmentId]
@@ -69,7 +73,7 @@ async function main() {
 
     const labsResult = await client.query(
       `SELECT lab_id, name::text AS name
-       FROM kratos.labs
+       FROM ${DB_SCHEMA}.labs
        WHERE department_id = $1 AND is_active = true
        ORDER BY lab_id`,
       [cseDepartmentId]
@@ -80,7 +84,7 @@ async function main() {
     for (const lab of labsResult.rows) {
       const v = buildDummyValues(lab.lab_id);
       const result = await client.query(
-        `INSERT INTO kratos.lab_audit_values (
+        `INSERT INTO ${DB_SCHEMA}.lab_audit_values (
            lab_id, audit_date, energy_kwh, occupancy_avg_pct, device_uptime_pct,
            temperature_avg_c, anomalies_count, audit_score, updated_at
          ) VALUES (

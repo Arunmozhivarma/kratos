@@ -5,6 +5,7 @@ const pool = require("./db");
 require("dotenv").config();
 
 const app = express();
+const DB_SCHEMA = (process.env.DB_SCHEMA || "public").replace(/[^a-zA-Z0-9_]/g, "");
 
 app.use(cors());
 app.use(express.json());
@@ -16,7 +17,7 @@ app.get("/", (req, res) => {
 app.get("/api/departments", async (req, res) => {
   try {
     const result = await pool.query(
-      "SELECT department_id, name FROM kratos.departments ORDER BY name"
+      `SELECT department_id, name FROM ${DB_SCHEMA}.departments ORDER BY name`
     );
     res.json(result.rows);
   } catch (error) {
@@ -31,7 +32,7 @@ app.get("/api/labs/:departmentId", async (req, res) => {
 
     const result = await pool.query(
       `SELECT lab_id, name
-       FROM kratos.labs
+       FROM ${DB_SCHEMA}.labs
        WHERE department_id = $1 AND is_active = true
        ORDER BY name`,
       [departmentId]
@@ -53,11 +54,11 @@ app.get("/api/dashboard/:labId", async (req, res) => {
          l.lab_id,
          l.name AS lab_name,
          COALESCE(d.current_power_watts, 0) AS current_power_watts,
-         COALESCE(d.energy_today_kwh, 0) AS energy_today_kwh,
-         COALESCE(d.active_devices, 0) AS active_devices,
-         d.last_updated
-       FROM kratos.labs l
-       LEFT JOIN kratos.lab_dashboard d ON l.lab_id = d.lab_id
+       COALESCE(d.energy_today_kwh, 0) AS energy_today_kwh,
+       COALESCE(d.active_devices, 0) AS active_devices,
+       d.last_updated
+       FROM ${DB_SCHEMA}.labs l
+       LEFT JOIN ${DB_SCHEMA}.lab_dashboard d ON l.lab_id = d.lab_id
        WHERE l.lab_id = $1
        LIMIT 1`,
       [labId]
@@ -89,11 +90,11 @@ app.get("/api/dashboard", async (req, res) => {
          l.lab_id,
          l.name AS lab_name,
          COALESCE(d.current_power_watts, 0) AS current_power_watts,
-         COALESCE(d.energy_today_kwh, 0) AS energy_today_kwh,
-         COALESCE(d.active_devices, 0) AS active_devices,
-         d.last_updated
-       FROM kratos.labs l
-       LEFT JOIN kratos.lab_dashboard d ON l.lab_id = d.lab_id
+       COALESCE(d.energy_today_kwh, 0) AS energy_today_kwh,
+       COALESCE(d.active_devices, 0) AS active_devices,
+       d.last_updated
+       FROM ${DB_SCHEMA}.labs l
+       LEFT JOIN ${DB_SCHEMA}.lab_dashboard d ON l.lab_id = d.lab_id
        WHERE l.department_id = $1
          AND l.name = $2
        LIMIT 1`,
@@ -122,7 +123,7 @@ app.post("/api/signup", async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 10);
 
     const result = await pool.query(
-      `INSERT INTO kratos.users (username, email, department_id, password_hash)
+      `INSERT INTO ${DB_SCHEMA}.users (username, email, department_id, password_hash)
        VALUES ($1, $2, $3, $4)
        RETURNING user_id, username, email, department_id`,
       [username, email, department_id, hashedPassword]
@@ -153,7 +154,7 @@ app.post("/api/login", async (req, res) => {
 
     const result = await pool.query(
       `SELECT user_id, username, email, department_id, password_hash
-       FROM kratos.users
+       FROM ${DB_SCHEMA}.users
        WHERE (username = $1 OR email = $1)
          AND department_id = $2
          AND is_active = true`,
