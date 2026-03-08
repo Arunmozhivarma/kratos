@@ -1,5 +1,8 @@
 import cv2
 import json
+import requests
+
+BACKEND_URL = "http://localhost:5000/api/devices"
 
 zones = {}
 drawing = False
@@ -22,14 +25,26 @@ def mouse_callback(event, x, y, flags, param):
         end_point = (x, y)
 
         if current_fan_id:
-            zones[current_fan_id] = [list(start_point), list(end_point)]
-            print(f"Zone saved for {current_fan_id}")
-            current_fan_id = ""  # Reset after saving
+            try:
+                fid = int(current_fan_id)
+            except ValueError:
+                print("Fan ID must be an integer")
+                return
+
+            zones[fid] = [list(start_point), list(end_point)]
+            # create device row
+            try:
+                resp = requests.post(BACKEND_URL, json={"device_id": fid})
+                print(f"created device {fid}: {resp.status_code}")
+            except requests.exceptions.RequestException as e:
+                print(f"failed to create device {fid}: {e}")
+
+            current_fan_id = ""
         else:
             print("No Fan ID set. Press 'n' first.")
 
 
-cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+cap = cv2.VideoCapture(1, cv2.CAP_DSHOW)
 cv2.namedWindow("Zone Config")
 cv2.setMouseCallback("Zone Config", mouse_callback)
 
@@ -48,7 +63,7 @@ while True:
     for fan_id, zone in zones.items():
         (x1, y1), (x2, y2) = zone
         cv2.rectangle(temp, (x1, y1), (x2, y2), (0, 255, 0), 2)
-        cv2.putText(temp, fan_id, (x1, y1 - 10),
+        cv2.putText(temp, str(fan_id), (x1, y1 - 10),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
     # Show typing overlay
@@ -72,7 +87,7 @@ while True:
             print(f"Fan ID set to: {current_fan_id}")
         elif key == 8:  # Backspace
             current_fan_id = current_fan_id[:-1]
-        elif 32 <= key <= 126:  # Printable characters
+        elif 48 <= key <= 57:  # Printable characters
             current_fan_id += chr(key)
 
     elif key == ord('s'):

@@ -1,6 +1,7 @@
 from ultralytics import YOLO
 import cv2
 import json
+import requests
 
 # Load zones
 with open("zones.json", "r") as f:
@@ -9,7 +10,13 @@ with open("zones.json", "r") as f:
 # Load YOLO model
 model = YOLO("yolov8n.pt")
 
-cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+# Backend API endpoint
+BACKEND_URL = "http://localhost:5000/api/devices/update"
+
+# Track previous statuses to avoid unnecessary API calls
+previous_statuses = {fan_id: False for fan_id in zones.keys()}
+
+cap = cv2.VideoCapture(1, cv2.CAP_DSHOW)
 
 while True:
     ret, frame = cap.read()
@@ -41,6 +48,19 @@ while True:
 
                     if zx1 <= cx <= zx2 and zy1 <= cy <= zy2:
                         fan_status[fan_id] = True
+    
+    # Send updates to backend only if status changed
+    for fan_id, status in fan_status.items():
+        if status != previous_statuses[fan_id]:
+            try:
+                response = requests.post(BACKEND_URL, json={"fan_id": fan_id, "status": "ON" if status else "OFF"})
+                if response.status_code == 200:
+                    print(f"Updated {fan_id} to {'ON' if status else 'OFF'}")
+                else:
+                    print(f"Failed to update {fan_id}: {response.status_code}")
+            except requests.exceptions.RequestException as e:
+                print(f"Error sending update for {fan_id}: {e}")
+            previous_statuses[fan_id] = status
 
     # Draw zones and show status
     for fan_id, zone in zones.items():
