@@ -3,7 +3,6 @@ export const navItems = [
   { name: 'Energy Monitoring', path: '/app/energy', icon: 'LineChart' },
   { name: 'Device Control', path: '/app/devices', icon: 'SlidersHorizontal' },
   { name: 'Analytics / Report', path: '/app/analytics', icon: 'BarChart3' },
-  { name: 'Users', path: '/app/users', icon: 'Users' },
   { name: 'Settings', path: '/app/settings', icon: 'Settings' },
   { name: 'Help', path: '/app/help', icon: 'CircleHelp' }
 ];
@@ -46,12 +45,6 @@ export const activityLog = [
   { time: '09:10', event: 'Motion detected in Lab Zone' },
   { time: '09:08', event: 'Room empty in Classroom' },
   { time: '08:55', event: 'Energy spike alert acknowledged' }
-];
-
-export const users = [
-  { username: 'admin01', role: 'Admin', lastLogin: 'Today, 08:58', status: 'Active' },
-  { username: 'operator2', role: 'Operator', lastLogin: 'Today, 08:12', status: 'Active' },
-  { username: 'jane', role: 'Operator', lastLogin: 'Yesterday, 19:30', status: 'Inactive' }
 ];
 
 export const energyComparisons = [

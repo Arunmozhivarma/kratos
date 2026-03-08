@@ -400,7 +400,7 @@ app.get("/api/six-month-consumption/:labId", async (req, res) => {
        WHERE lab_id = $1 
          AND date >= CURRENT_DATE - INTERVAL '6 months'
        GROUP BY TO_CHAR(date, 'Mon'), EXTRACT(MONTH FROM date)
-       ORDER BY EXTRACT(MONTH FROM date)`,
+       ORDER BY EXTRACT(MONTH FROM date)",
       [labId]
     );
 
@@ -419,8 +419,8 @@ app.get("/api/peak-usage-hours/:labId", async (req, res) => {
     const result = await pool.query(
       `SELECT 
          hour,
-         AVG(energy_kwh) as avg_power
-       FROM ${DB_SCHEMA}.energy_consumption
+      AVG(energy_kwh) as avg_power
+       FROM ${ DB_SCHEMA }.energy_consumption
        WHERE lab_id = $1 
          AND date >= CURRENT_DATE - INTERVAL '7 days'
        GROUP BY hour
@@ -432,8 +432,8 @@ app.get("/api/peak-usage-hours/:labId", async (req, res) => {
     const peakHours = result.rows.map((row, index) => {
       const startHour = parseInt(row.hour);
       const endHour = startHour + 2;
-      const timeSlot = `${startHour.toString().padStart(2, '0')}:00 - ${endHour.toString().padStart(2, '0')}:00`;
-
+      const timeSlot = `${ startHour.toString().padStart(2, '0') }:00 - ${ endHour.toString().padStart(2, '0') }:00`;
+      
       return {
         time: timeSlot,
         power: parseFloat(row.avg_power).toFixed(1)
@@ -454,16 +454,16 @@ app.get("/api/top-energy-consumers/:labId", async (req, res) => {
     // Since we don't have device-level data, we'll simulate it based on lab characteristics
     const dashboardResult = await pool.query(
       `SELECT current_power_watts, active_devices
-       FROM ${DB_SCHEMA}.lab_dashboard
+       FROM ${ DB_SCHEMA }.lab_dashboard
        WHERE lab_id = $1`,
       [labId]
     );
 
-    const currentPower = dashboardResult.rows.length > 0
+    const currentPower = dashboardResult.rows.length > 0 
       ? parseFloat(dashboardResult.rows[0].current_power_watts)
       : 1000;
 
-    const activeDevices = dashboardResult.rows.length > 0
+    const activeDevices = dashboardResult.rows.length > 0 
       ? parseInt(dashboardResult.rows[0].active_devices)
       : 10;
 
@@ -485,5 +485,5 @@ app.get("/api/top-energy-consumers/:labId", async (req, res) => {
 const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`Server running on port ${ PORT }`);
 });

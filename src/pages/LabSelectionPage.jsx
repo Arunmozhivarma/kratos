@@ -32,7 +32,15 @@ export default function LabSelectionPage() {
       })
       .then((data) => {
         console.log('Labs list from backend:', data);
-        setLabs(data);
+
+        // Add test lab for testing purposes
+        const testLab = {
+          id: 'test-lab',
+          lab_id: 'test-lab',
+          name: 'Test Lab (Simulation)'
+        };
+
+        setLabs([testLab, ...data]);
         setError('');
       })
       .catch((err) => {
