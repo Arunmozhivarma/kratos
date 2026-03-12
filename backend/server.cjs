@@ -187,6 +187,70 @@ app.post("/api/login", async (req, res) => {
   }
 });
 
+// Device endpoints
+app.post("/api/devices", async (req, res) => {
+  try {
+    const { device_id } = req.body;
+
+    if (!device_id) {
+      return res.status(400).json({ message: "device_id is required" });
+    }
+
+    const result = await pool.query(
+      `INSERT INTO ${DB_SCHEMA}.devices (device_id, state)
+       VALUES ($1, false)
+       ON CONFLICT (device_id) DO NOTHING
+       RETURNING device_id, state`,
+      [device_id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(409).json({ message: "Device already exists" });
+    }
+
+    res.status(201).json({
+      message: "Device created successfully",
+      device: result.rows[0]
+    });
+  } catch (error) {
+    console.error("Error creating device:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+app.post("/api/devices/update", async (req, res) => {
+  try {
+    const { fan_id, status } = req.body;
+
+    if (!fan_id || status === undefined) {
+      return res.status(400).json({ message: "fan_id and status are required" });
+    }
+
+    const stateValue = status === "ON";
+
+    const result = await pool.query(
+      `UPDATE ${DB_SCHEMA}.devices
+       SET device_status = $1
+       WHERE device_id = $2
+       RETURNING device_id, device_status`,
+      [stateValue, fan_id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: "Device not found" });
+    }
+
+    res.json({
+      message: "Device updated successfully",
+      device: result.rows[0]
+    });
+
+  } catch (error) {
+    console.error("Error updating device:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
 const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
