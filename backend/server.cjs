@@ -1,6 +1,7 @@
 const express = require("express");
 const cors = require("cors");
 const bcrypt = require("bcrypt");
+const axios = require("axios");
 const pool = require("./db");
 require("dotenv").config();
 
@@ -239,6 +240,29 @@ app.post("/api/devices/update", async (req, res) => {
     if (result.rows.length === 0) {
       return res.status(404).json({ message: "Device not found" });
     }
+
+    // Trigger ESP32 fan control based on state
+    // ========================================
+    // IMPORTANT: This IP address will change for different networks
+    // Update this IP address when deploying to a different network
+    const ESP32_IP = "http://10.205.108.109";
+
+    try {
+      if (stateValue) {
+        // State is true (ON) -> trigger /off endpoint (ESP32 logic is inverted)
+        console.log(`Turning fan ${fan_id} OFF (ESP32 logic inverted)`);
+        await axios.get(`${ESP32_IP}/off`, { timeout: 5000 });
+      } else {
+        // State is false (OFF) -> trigger /on endpoint (ESP32 logic is inverted)
+        console.log(`Turning fan ${fan_id} ON (ESP32 logic inverted)`);
+        await axios.get(`${ESP32_IP}/on`, { timeout: 5000 });
+      }
+      console.log(`Successfully triggered ESP32 for fan ${fan_id}`);
+    } catch (espError) {
+      console.error(`Failed to trigger ESP32 for fan ${fan_id}:`, espError.message);
+      // Don't fail the entire request if ESP32 is unreachable
+    }
+    // ========================================
 
     res.json({
       message: "Device updated successfully",
