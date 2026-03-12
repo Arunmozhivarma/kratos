@@ -8,6 +8,75 @@ require("dotenv").config();
 const app = express();
 const DB_SCHEMA = (process.env.DB_SCHEMA || "public").replace(/[^a-zA-Z0-9_]/g, "");
 
+// Store previous device states to detect changes
+let previousDeviceStates = new Map();
+
+// ESP32 IP Configuration - Update this for different networks
+const ESP32_IP = "http://10.205.108.109";
+
+// Function to trigger ESP32 based on device state
+async function triggerESP32(deviceId, state) {
+  try {
+    if (state) {
+      // State is true (ON) -> trigger /off endpoint (ESP32 logic is inverted)
+      console.log(`Turning fan ${deviceId} OFF (ESP32 logic inverted)`);
+      await axios.get(`${ESP32_IP}/off`, { timeout: 5000 });
+    } else {
+      // State is false (OFF) -> trigger /on endpoint (ESP32 logic is inverted)
+      console.log(`Turning fan ${deviceId} ON (ESP32 logic inverted)`);
+      await axios.get(`${ESP32_IP}/on`, { timeout: 5000 });
+    }
+    console.log(`Successfully triggered ESP32 for fan ${deviceId}`);
+  } catch (espError) {
+    console.error(`Failed to trigger ESP32 for fan ${deviceId}:`, espError.message);
+  }
+}
+
+// Function to poll database and trigger ESP32 for state changes
+async function pollDatabaseForChanges() {
+  try {
+    const result = await pool.query(
+      `SELECT device_id, device_status FROM ${DB_SCHEMA}.devices`
+    );
+
+    for (const device of result.rows) {
+      const deviceId = device.device_id;
+      const currentState = device.device_status;
+      const previousState = previousDeviceStates.get(deviceId);
+
+      // If state changed, trigger ESP32
+      if (previousState !== undefined && previousState !== currentState) {
+        console.log(`Device ${deviceId} state changed from ${previousState} to ${currentState}`);
+        await triggerESP32(deviceId, currentState);
+      }
+
+      // Update previous state
+      previousDeviceStates.set(deviceId, currentState);
+    }
+  } catch (error) {
+    console.error("Error polling database:", error);
+  }
+}
+
+// Start database polling every 2 seconds
+setInterval(pollDatabaseForChanges, 2000);
+
+// Initialize previous states on startup
+async function initializeDeviceStates() {
+  try {
+    const result = await pool.query(
+      `SELECT device_id, device_status FROM ${DB_SCHEMA}.devices`
+    );
+
+    for (const device of result.rows) {
+      previousDeviceStates.set(device.device_id, device.device_status);
+    }
+    console.log("Initialized device states:", Object.fromEntries(previousDeviceStates));
+  } catch (error) {
+    console.error("Error initializing device states:", error);
+  }
+}
+
 app.use(cors());
 app.use(express.json());
 
@@ -198,10 +267,10 @@ app.post("/api/devices", async (req, res) => {
     }
 
     const result = await pool.query(
-      `INSERT INTO ${DB_SCHEMA}.devices (device_id, state)
+      `INSERT INTO ${DB_SCHEMA}.devices (device_id, device_status)
        VALUES ($1, false)
        ON CONFLICT (device_id) DO NOTHING
-       RETURNING device_id, state`,
+       RETURNING device_id, device_status`,
       [device_id]
     );
 
@@ -241,28 +310,9 @@ app.post("/api/devices/update", async (req, res) => {
       return res.status(404).json({ message: "Device not found" });
     }
 
-    // Trigger ESP32 fan control based on state
-    // ========================================
-    // IMPORTANT: This IP address will change for different networks
-    // Update this IP address when deploying to a different network
-    const ESP32_IP = "http://10.205.108.109";
-
-    try {
-      if (stateValue) {
-        // State is true (ON) -> trigger /off endpoint (ESP32 logic is inverted)
-        console.log(`Turning fan ${fan_id} OFF (ESP32 logic inverted)`);
-        await axios.get(`${ESP32_IP}/off`, { timeout: 5000 });
-      } else {
-        // State is false (OFF) -> trigger /on endpoint (ESP32 logic is inverted)
-        console.log(`Turning fan ${fan_id} ON (ESP32 logic inverted)`);
-        await axios.get(`${ESP32_IP}/on`, { timeout: 5000 });
-      }
-      console.log(`Successfully triggered ESP32 for fan ${fan_id}`);
-    } catch (espError) {
-      console.error(`Failed to trigger ESP32 for fan ${fan_id}:`, espError.message);
-      // Don't fail the entire request if ESP32 is unreachable
-    }
-    // ========================================
+    // ESP32 trigger is now handled by database polling mechanism
+    // The pollDatabaseForChanges() function will detect this state change
+    // and trigger the ESP32 accordingly
 
     res.json({
       message: "Device updated successfully",
@@ -277,6 +327,10 @@ app.post("/api/devices/update", async (req, res) => {
 
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
+
+  // Initialize device states and start polling
+  await initializeDeviceStates();
+  console.log("Database polling started for ESP32 triggers");
 });
