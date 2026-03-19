@@ -1,11 +1,81 @@
 const express = require("express");
 const cors = require("cors");
 const bcrypt = require("bcrypt");
+const axios = require("axios");
 const pool = require("./db");
 require("dotenv").config();
 
 const app = express();
 const DB_SCHEMA = (process.env.DB_SCHEMA || "public").replace(/[^a-zA-Z0-9_]/g, "");
+
+// Store previous device states to detect changes
+let previousDeviceStates = new Map();
+
+// ESP32 IP Configuration - Update this for different networks
+const ESP32_IP = "http://10.70.103.109";
+
+// Function to trigger ESP32 based on device state
+async function triggerESP32(deviceId, state) {
+  try {
+    if (state) {
+      // State is true (ON) -> trigger /off endpoint (ESP32 logic is inverted)
+      console.log(`Turning fan ${deviceId} OFF (ESP32 logic inverted)`);
+      await axios.get(`${ESP32_IP}/off`, { timeout: 5000 });
+    } else {
+      // State is false (OFF) -> trigger /on endpoint (ESP32 logic is inverted)
+      console.log(`Turning fan ${deviceId} ON (ESP32 logic inverted)`);
+      await axios.get(`${ESP32_IP}/on`, { timeout: 5000 });
+    }
+    console.log(`Successfully triggered ESP32 for fan ${deviceId}`);
+  } catch (espError) {
+    console.error(`Failed to trigger ESP32 for fan ${deviceId}:`, espError.message);
+  }
+}
+
+// Function to poll database and trigger ESP32 for state changes
+async function pollDatabaseForChanges() {
+  try {
+    const result = await pool.query(
+      `SELECT device_id, device_status FROM ${DB_SCHEMA}.devices`
+    );
+
+    for (const device of result.rows) {
+      const deviceId = device.device_id;
+      const currentState = device.device_status;
+      const previousState = previousDeviceStates.get(deviceId);
+
+      // If state changed, trigger ESP32
+      if (previousState !== undefined && previousState !== currentState) {
+        console.log(`Device ${deviceId} state changed from ${previousState} to ${currentState}`);
+        await triggerESP32(deviceId, currentState);
+      }
+
+      // Update previous state
+      previousDeviceStates.set(deviceId, currentState);
+    }
+  } catch (error) {
+    console.error("Error polling database:", error);
+  }
+}
+
+// Start database polling every 2 seconds
+setInterval(pollDatabaseForChanges, 2000);
+
+// Initialize previous states on startup
+async function initializeDeviceStates() {
+  try {
+    const result = await pool.query(
+      `SELECT device_id, device_status FROM ${DB_SCHEMA}.devices`
+    );
+
+    for (const device of result.rows) {
+      previousDeviceStates.set(device.device_id, device.device_status);
+    }
+    console.log("Initialized device states:", Object.fromEntries(previousDeviceStates));
+  } catch (error) {
+    console.error("Error initializing device states:", error);
+  }
+}
 
 app.use(cors());
 app.use(express.json());
@@ -187,6 +257,33 @@ app.post("/api/login", async (req, res) => {
   }
 });
 
+// Device endpoints
+app.post("/api/devices", async (req, res) => {
+  try {
+    const { device_id } = req.body;
+
+    if (!device_id) {
+      return res.status(400).json({ message: "device_id is required" });
+    }
+
+    const result = await pool.query(
+      `INSERT INTO ${DB_SCHEMA}.devices (device_id, device_status)
+       VALUES ($1, false)
+       ON CONFLICT (device_id) DO NOTHING
+       RETURNING device_id, device_status`,
+      [device_id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(409).json({ message: "Device already exists" });
+    }
+
+    res.status(201).json({
+      message: "Device created successfully",
+      device: result.rows[0]
+    });
+  } catch (error) {
+    console.error("Error creating device:", error);
 app.get("/api/energy-consumption/:labId", async (req, res) => {
   try {
     const { labId } = req.params;
@@ -274,6 +371,39 @@ app.get("/api/energy-comparisons/:labId", async (req, res) => {
   }
 });
 
+app.post("/api/devices/update", async (req, res) => {
+  try {
+    const { fan_id, status } = req.body;
+
+    if (!fan_id || status === undefined) {
+      return res.status(400).json({ message: "fan_id and status are required" });
+    }
+
+    const stateValue = status === "ON";
+
+    const result = await pool.query(
+      `UPDATE ${DB_SCHEMA}.devices
+       SET device_status = $1
+       WHERE device_id = $2
+       RETURNING device_id, device_status`,
+      [stateValue, fan_id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: "Device not found" });
+    }
+
+    // ESP32 trigger is now handled by database polling mechanism
+    // The pollDatabaseForChanges() function will detect this state change
+    // and trigger the ESP32 accordingly
+
+    res.json({
+      message: "Device updated successfully",
+      device: result.rows[0]
+    });
+
+  } catch (error) {
+    console.error("Error updating device:", error);
 app.get("/api/power-trend/:labId", async (req, res) => {
   try {
     const { labId } = req.params;
@@ -484,6 +614,10 @@ app.get("/api/top-energy-consumers/:labId", async (req, res) => {
 
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
+
+  // Initialize device states and start polling
+  await initializeDeviceStates();
+  console.log("Database polling started for ESP32 triggers");
 });
