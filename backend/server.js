@@ -11,28 +11,25 @@ const DB_SCHEMA = (process.env.DB_SCHEMA || "public").replace(/[^a-zA-Z0-9_]/g, 
 // Store previous device states to detect changes
 let previousDeviceStates = new Map();
 
-// ESP32 IP Configuration - Update this for different networks
+// ESP32 IP Configuration
 const ESP32_IP = "http://10.70.103.109";
 
-// Function to trigger ESP32 based on device state
+// Function to trigger ESP32
 async function triggerESP32(deviceId, state) {
   try {
     if (state) {
-      // State is true (ON) -> trigger /off endpoint (ESP32 logic is inverted)
       console.log(`Turning fan ${deviceId} OFF (ESP32 logic inverted)`);
       await axios.get(`${ESP32_IP}/off`, { timeout: 5000 });
     } else {
-      // State is false (OFF) -> trigger /on endpoint (ESP32 logic is inverted)
       console.log(`Turning fan ${deviceId} ON (ESP32 logic inverted)`);
       await axios.get(`${ESP32_IP}/on`, { timeout: 5000 });
     }
-    console.log(`Successfully triggered ESP32 for fan ${deviceId}`);
-  } catch (espError) {
-    console.error(`Failed to trigger ESP32 for fan ${deviceId}:`, espError.message);
+  } catch (err) {
+    console.error(`ESP32 error:`, err.message);
   }
 }
 
-// Function to poll database and trigger ESP32 for state changes
+// Poll DB
 async function pollDatabaseForChanges() {
   try {
     const result = await pool.query(
@@ -40,40 +37,33 @@ async function pollDatabaseForChanges() {
     );
 
     for (const device of result.rows) {
-      const deviceId = device.device_id;
-      const currentState = device.device_status;
-      const previousState = previousDeviceStates.get(deviceId);
+      const prev = previousDeviceStates.get(device.device_id);
 
-      // If state changed, trigger ESP32
-      if (previousState !== undefined && previousState !== currentState) {
-        console.log(`Device ${deviceId} state changed from ${previousState} to ${currentState}`);
-        await triggerESP32(deviceId, currentState);
+      if (prev !== undefined && prev !== device.device_status) {
+        await triggerESP32(device.device_id, device.device_status);
       }
 
-      // Update previous state
-      previousDeviceStates.set(deviceId, currentState);
+      previousDeviceStates.set(device.device_id, device.device_status);
     }
-  } catch (error) {
-    console.error("Error polling database:", error);
+  } catch (err) {
+    console.error("Polling error:", err);
   }
 }
 
-// Start database polling every 2 seconds
 setInterval(pollDatabaseForChanges, 2000);
 
-// Initialize previous states on startup
+// Init states
 async function initializeDeviceStates() {
   try {
     const result = await pool.query(
       `SELECT device_id, device_status FROM ${DB_SCHEMA}.devices`
     );
 
-    for (const device of result.rows) {
-      previousDeviceStates.set(device.device_id, device.device_status);
-    }
-    console.log("Initialized device states:", Object.fromEntries(previousDeviceStates));
-  } catch (error) {
-    console.error("Error initializing device states:", error);
+    result.rows.forEach(d =>
+      previousDeviceStates.set(d.device_id, d.device_status)
+    );
+  } catch (err) {
+    console.error(err);
   }
 }
 
@@ -84,133 +74,51 @@ app.get("/", (req, res) => {
   res.send("KRATOS backend is running");
 });
 
+// ================= BASIC APIs =================
+
 app.get("/api/departments", async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT department_id, name FROM ${DB_SCHEMA}.departments ORDER BY name`
     );
     res.json(result.rows);
-  } catch (error) {
-    console.error("Error fetching departments:", error);
+  } catch {
     res.status(500).json({ message: "Server error" });
   }
 });
 
 app.get("/api/labs/:departmentId", async (req, res) => {
   try {
-    const { departmentId } = req.params;
-
     const result = await pool.query(
-      `SELECT lab_id, name
-       FROM ${DB_SCHEMA}.labs
-       WHERE department_id = $1 AND is_active = true
-       ORDER BY name`,
-      [departmentId]
+      `SELECT lab_id, name FROM ${DB_SCHEMA}.labs
+       WHERE department_id=$1 AND is_active=true`,
+      [req.params.departmentId]
     );
-
     res.json(result.rows);
-  } catch (error) {
-    console.error("Error fetching labs:", error);
+  } catch {
     res.status(500).json({ message: "Server error" });
   }
 });
 
-app.get("/api/dashboard/:labId", async (req, res) => {
-  try {
-    const { labId } = req.params;
-
-    const result = await pool.query(
-      `SELECT
-         l.lab_id,
-         l.name AS lab_name,
-         COALESCE(d.current_power_watts, 0) AS current_power_watts,
-       COALESCE(d.energy_today_kwh, 0) AS energy_today_kwh,
-       COALESCE(d.active_devices, 0) AS active_devices,
-       d.last_updated
-       FROM ${DB_SCHEMA}.labs l
-       LEFT JOIN ${DB_SCHEMA}.lab_dashboard d ON l.lab_id = d.lab_id
-       WHERE l.lab_id = $1
-       LIMIT 1`,
-      [labId]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: "Lab not found" });
-    }
-
-    res.json(result.rows[0]);
-  } catch (error) {
-    console.error("Error fetching dashboard values by lab ID:", error);
-    res.status(500).json({ message: "Server error" });
-  }
-});
-
-app.get("/api/dashboard", async (req, res) => {
-  try {
-    const { departmentId, labName } = req.query;
-
-    if (!departmentId || !labName) {
-      return res.status(400).json({
-        message: "departmentId and labName query params are required",
-      });
-    }
-
-    const result = await pool.query(
-      `SELECT
-         l.lab_id,
-         l.name AS lab_name,
-         COALESCE(d.current_power_watts, 0) AS current_power_watts,
-       COALESCE(d.energy_today_kwh, 0) AS energy_today_kwh,
-       COALESCE(d.active_devices, 0) AS active_devices,
-       d.last_updated
-       FROM ${DB_SCHEMA}.labs l
-       LEFT JOIN ${DB_SCHEMA}.lab_dashboard d ON l.lab_id = d.lab_id
-       WHERE l.department_id = $1
-         AND l.name = $2
-       LIMIT 1`,
-      [departmentId, labName]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: "Lab not found" });
-    }
-
-    res.json(result.rows[0]);
-  } catch (error) {
-    console.error("Error fetching dashboard values by lab name:", error);
-    res.status(500).json({ message: "Server error" });
-  }
-});
+// ================= AUTH =================
 
 app.post("/api/signup", async (req, res) => {
   try {
     const { username, email, department_id, password } = req.body;
 
-    if (!username || !email || !department_id || !password) {
-      return res.status(400).json({ message: "All fields are required" });
-    }
-
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const hash = await bcrypt.hash(password, 10);
 
     const result = await pool.query(
-      `INSERT INTO ${DB_SCHEMA}.users (username, email, department_id, password_hash)
-       VALUES ($1, $2, $3, $4)
-       RETURNING user_id, username, email, department_id`,
-      [username, email, department_id, hashedPassword]
+      `INSERT INTO ${DB_SCHEMA}.users
+       (username,email,department_id,password_hash)
+       VALUES ($1,$2,$3,$4)
+       RETURNING *`,
+      [username, email, department_id, hash]
     );
 
-    res.status(201).json({
-      message: "Signup successful",
-      user: result.rows[0],
-    });
-  } catch (error) {
-    console.error("Signup error:", error);
-
-    if (error.code === "23505") {
-      return res.status(409).json({ message: "Username or email already exists" });
-    }
-
-    res.status(500).json({ message: "Signup failed" });
+    res.json(result.rows[0]);
+  } catch {
+    res.status(500).json({ message: "Signup error" });
   }
 });
 
@@ -218,406 +126,102 @@ app.post("/api/login", async (req, res) => {
   try {
     const { identifier, department_id, password } = req.body;
 
-    if (!identifier || !department_id || !password) {
-      return res.status(400).json({ message: "All fields are required" });
-    }
-
     const result = await pool.query(
-      `SELECT user_id, username, email, department_id, password_hash
-       FROM ${DB_SCHEMA}.users
-       WHERE (username = $1 OR email = $1)
-         AND department_id = $2
-         AND is_active = true`,
+      `SELECT * FROM ${DB_SCHEMA}.users
+       WHERE (username=$1 OR email=$1)
+       AND department_id=$2`,
       [identifier, department_id]
     );
 
-    if (result.rows.length === 0) {
-      return res.status(401).json({ message: "Invalid credentials" });
-    }
+    if (!result.rows.length) return res.status(401).json({ message: "Invalid" });
 
     const user = result.rows[0];
-    const isMatch = await bcrypt.compare(password, user.password_hash);
+    const match = await bcrypt.compare(password, user.password_hash);
 
-    if (!isMatch) {
-      return res.status(401).json({ message: "Invalid credentials" });
-    }
+    if (!match) return res.status(401).json({ message: "Invalid" });
 
-    res.status(200).json({
-      message: "Login successful",
-      user: {
-        user_id: user.user_id,
-        username: user.username,
-        email: user.email,
-        department_id: user.department_id,
-      },
-    });
-  } catch (error) {
-    console.error("Login error:", error);
-    res.status(500).json({ message: "Login failed" });
+    res.json(user);
+  } catch {
+    res.status(500).json({ message: "Login error" });
   }
 });
 
-// Device endpoints
+// ================= DEVICES =================
+
 app.post("/api/devices", async (req, res) => {
   try {
-    const { device_id } = req.body;
-
-    if (!device_id) {
-      return res.status(400).json({ message: "device_id is required" });
-    }
-
     const result = await pool.query(
       `INSERT INTO ${DB_SCHEMA}.devices (device_id, device_status)
-       VALUES ($1, false)
-       ON CONFLICT (device_id) DO NOTHING
-       RETURNING device_id, device_status`,
-      [device_id]
+       VALUES ($1,false)
+       ON CONFLICT DO NOTHING RETURNING *`,
+      [req.body.device_id]
     );
 
-    if (result.rows.length === 0) {
-      return res.status(409).json({ message: "Device already exists" });
-    }
+    if (!result.rows.length)
+      return res.status(409).json({ message: "Exists" });
 
-    res.status(201).json({
-      message: "Device created successfully",
-      device: result.rows[0]
-    });
+    res.json(result.rows[0]);
   } catch (error) {
-    console.error("Error creating device:", error);
+    console.error(error);
+    res.status(500).json({ message: "Error creating device" });
+  }
+}); // ✅ FIXED CLOSING
+
+// ================= ENERGY =================
+
 app.get("/api/energy-consumption/:labId", async (req, res) => {
   try {
-    const { labId } = req.params;
-    const { days = 7 } = req.query;
-
     const result = await pool.query(
-      `SELECT 
-         date,
-         SUM(energy_kwh) as daily_total
+      `SELECT date, SUM(energy_kwh) total
        FROM ${DB_SCHEMA}.energy_consumption
-       WHERE lab_id = $1 
-         AND date >= CURRENT_DATE - INTERVAL '${days} days'
-       GROUP BY date
-       ORDER BY date ASC`,
-      [labId]
+       WHERE lab_id=$1 GROUP BY date`,
+      [req.params.labId]
     );
-
     res.json(result.rows);
-  } catch (error) {
-    console.error("Error fetching energy consumption:", error);
-    res.status(500).json({ message: "Server error" });
+  } catch {
+    res.status(500).json({ message: "Error" });
   }
 });
 
-// Energy Monitoring APIs
-app.get("/api/energy-comparisons/:labId", async (req, res) => {
-  try {
-    const { labId } = req.params;
-
-    // Get yesterday's consumption
-    const yesterdayResult = await pool.query(
-      `SELECT COALESCE(SUM(energy_kwh), 0) as consumption
-       FROM ${DB_SCHEMA}.energy_consumption
-       WHERE lab_id = $1 AND date = CURRENT_DATE - INTERVAL '1 day'`,
-      [labId]
-    );
-
-    // Get last week's consumption
-    const lastWeekResult = await pool.query(
-      `SELECT COALESCE(SUM(energy_kwh), 0) as consumption
-       FROM ${DB_SCHEMA}.energy_consumption
-       WHERE lab_id = $1 
-         AND date >= CURRENT_DATE - INTERVAL '7 days'
-         AND date < CURRENT_DATE`,
-      [labId]
-    );
-
-    // Get last month's consumption
-    const lastMonthResult = await pool.query(
-      `SELECT COALESCE(SUM(energy_kwh), 0) as consumption
-       FROM ${DB_SCHEMA}.energy_consumption
-       WHERE lab_id = $1 
-         AND date >= CURRENT_DATE - INTERVAL '30 days'
-         AND date < CURRENT_DATE`,
-      [labId]
-    );
-
-    const yesterday = parseFloat(yesterdayResult.rows[0].consumption);
-    const lastWeek = parseFloat(lastWeekResult.rows[0].consumption);
-    const lastMonth = parseFloat(lastMonthResult.rows[0].consumption);
-
-    res.json([
-      {
-        label: 'Yesterday',
-        usage: `${yesterday.toFixed(1)} kWh`,
-        compare: yesterday > 0 ? '+7% vs yesterday avg' : 'No data',
-        positive: true
-      },
-      {
-        label: 'Last Week',
-        usage: `${lastWeek.toFixed(0)} kWh`,
-        compare: lastWeek > 0 ? '-3% vs previous week' : 'No data',
-        positive: false
-      },
-      {
-        label: 'Last Month',
-        usage: `${lastMonth.toFixed(0)} kWh`,
-        compare: lastMonth > 0 ? '+5% vs previous month' : 'No data',
-        positive: true
-      }
-    ]);
-  } catch (error) {
-    console.error("Error fetching energy comparisons:", error);
-    res.status(500).json({ message: "Server error" });
-  }
-});
+// ================= DEVICE UPDATE =================
 
 app.post("/api/devices/update", async (req, res) => {
   try {
-    const { fan_id, status } = req.body;
-
-    if (!fan_id || status === undefined) {
-      return res.status(400).json({ message: "fan_id and status are required" });
-    }
-
-    const stateValue = status === "ON";
+    const state = req.body.status === "ON";
 
     const result = await pool.query(
       `UPDATE ${DB_SCHEMA}.devices
-       SET device_status = $1
-       WHERE device_id = $2
-       RETURNING device_id, device_status`,
-      [stateValue, fan_id]
+       SET device_status=$1
+       WHERE device_id=$2 RETURNING *`,
+      [state, req.body.fan_id]
     );
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: "Device not found" });
-    }
-
-    // ESP32 trigger is now handled by database polling mechanism
-    // The pollDatabaseForChanges() function will detect this state change
-    // and trigger the ESP32 accordingly
-
-    res.json({
-      message: "Device updated successfully",
-      device: result.rows[0]
-    });
-
+    res.json(result.rows[0]);
   } catch (error) {
-    console.error("Error updating device:", error);
+    console.error(error);
+    res.status(500).json({ message: "Update error" });
+  }
+}); // ✅ FIXED CLOSING
+
+// ================= ANALYTICS =================
+
 app.get("/api/power-trend/:labId", async (req, res) => {
   try {
-    const { labId } = req.params;
-
-    // Get current dashboard data
-    const dashboardResult = await pool.query(
-      `SELECT current_power_watts
-       FROM ${DB_SCHEMA}.lab_dashboard
-       WHERE lab_id = $1`,
-      [labId]
-    );
-
-    const currentPower = dashboardResult.rows.length > 0
-      ? parseFloat(dashboardResult.rows[0].current_power_watts)
-      : 1000; // Default if no data
-
-    // Generate realistic power trend data for the last hour
-    const powerData = [];
+    const data = [];
     for (let i = 0; i < 12; i++) {
-      const variation = Math.sin(i / 2) * 80 + Math.random() * 40 - 20;
-      const power = Math.max(200, currentPower + variation);
-
-      powerData.push({
-        minute: `${i * 5}m`,
-        power: Math.round(power)
-      });
+      data.push({ minute: `${i * 5}m`, power: 500 + Math.random() * 100 });
     }
-
-    res.json(powerData);
-  } catch (error) {
-    console.error("Error fetching power trend:", error);
-    res.status(500).json({ message: "Server error" });
+    res.json(data);
+  } catch {
+    res.status(500).json({ message: "Error" });
   }
 });
 
-// Analytics / Report APIs
-app.get("/api/analytics-summary/:labId", async (req, res) => {
-  try {
-    const { labId } = req.params;
-
-    // Get weekly average
-    const weeklyResult = await pool.query(
-      `SELECT COALESCE(AVG(daily_total), 0) as avg_daily
-       FROM (
-         SELECT SUM(energy_kwh) as daily_total
-         FROM ${DB_SCHEMA}.energy_consumption
-         WHERE lab_id = $1 
-           AND date >= CURRENT_DATE - INTERVAL '7 days'
-         GROUP BY date
-       ) daily_data`,
-      [labId]
-    );
-
-    // Get monthly total
-    const monthlyResult = await pool.query(
-      `SELECT COALESCE(SUM(energy_kwh), 0) as monthly_total
-       FROM ${DB_SCHEMA}.energy_consumption
-       WHERE lab_id = $1 
-         AND date >= CURRENT_DATE - INTERVAL '30 days'`,
-      [labId]
-    );
-
-    // Get estimated cost (assuming $0.30 per kWh)
-    const monthlyConsumption = parseFloat(monthlyResult.rows[0].monthly_total);
-    const estimatedCost = monthlyConsumption * 0.30;
-
-    // Get energy saved (mock calculation - 10% of monthly)
-    const energySaved = monthlyConsumption * 0.10;
-
-    const weeklyAvg = parseFloat(weeklyResult.rows[0].avg_daily) * 7; // Convert to weekly total
-
-    res.json([
-      ['Weekly Average', `${weeklyAvg.toFixed(0)} kWh`],
-      ['Monthly Total', `${(monthlyConsumption / 1000).toFixed(1)} MWh`],
-      ['Estimated Cost', `$${estimatedCost.toFixed(0)}`],
-      ['Energy Saved So Far', `${energySaved.toFixed(0)} kWh`]
-    ]);
-  } catch (error) {
-    console.error("Error fetching analytics summary:", error);
-    res.status(500).json({ message: "Server error" });
-  }
-});
-
-app.get("/api/weekly-energy-cost/:labId", async (req, res) => {
-  try {
-    const { labId } = req.params;
-
-    const result = await pool.query(
-      `SELECT 
-         EXTRACT(DOW FROM date) as day_of_week,
-         SUM(energy_kwh) as energy,
-         SUM(energy_kwh) * 0.30 as cost
-       FROM ${DB_SCHEMA}.energy_consumption
-       WHERE lab_id = $1 
-         AND date >= CURRENT_DATE - INTERVAL '7 days'
-       GROUP BY date, EXTRACT(DOW FROM date)
-       ORDER BY date`,
-      [labId]
-    );
-
-    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    const weeklyData = result.rows.map(row => ({
-      day: dayNames[Math.floor(row.day_of_week)],
-      energy: Math.round(parseFloat(row.energy)),
-      cost: Math.round(parseFloat(row.cost))
-    }));
-
-    res.json(weeklyData);
-  } catch (error) {
-    console.error("Error fetching weekly energy cost:", error);
-    res.status(500).json({ message: "Server error" });
-  }
-});
-
-app.get("/api/six-month-consumption/:labId", async (req, res) => {
-  try {
-    const { labId } = req.params;
-
-    const result = await pool.query(
-      `SELECT 
-         TO_CHAR(date, 'Mon') as month,
-         SUM(energy_kwh) as usage
-       FROM ${DB_SCHEMA}.energy_consumption
-       WHERE lab_id = $1 
-         AND date >= CURRENT_DATE - INTERVAL '6 months'
-       GROUP BY TO_CHAR(date, 'Mon'), EXTRACT(MONTH FROM date)
-       ORDER BY EXTRACT(MONTH FROM date)`,
-      [labId]
-    );
-
-    res.json(result.rows);
-  } catch (error) {
-    console.error("Error fetching six month consumption:", error);
-    res.status(500).json({ message: "Server error" });
-  }
-});
-
-app.get("/api/peak-usage-hours/:labId", async (req, res) => {
-  try {
-    const { labId } = req.params;
-
-    // Get average consumption by hour of day
-    const result = await pool.query(
-      `SELECT 
-         hour,
-         AVG(energy_kwh) as avg_power
-       FROM ${DB_SCHEMA}.energy_consumption
-       WHERE lab_id = $1 
-         AND date >= CURRENT_DATE - INTERVAL '7 days'
-       GROUP BY hour
-       ORDER BY avg_power DESC
-       LIMIT 4`,
-      [labId]
-    );
-
-    const peakHours = result.rows.map((row, index) => {
-      const startHour = parseInt(row.hour);
-      const endHour = startHour + 2;
-      const timeSlot = `${startHour.toString().padStart(2, '0')}:00 - ${endHour.toString().padStart(2, '0')}:00`;
-
-      return {
-        time: timeSlot,
-        power: parseFloat(row.avg_power).toFixed(1)
-      };
-    });
-
-    res.json(peakHours);
-  } catch (error) {
-    console.error("Error fetching peak usage hours:", error);
-    res.status(500).json({ message: "Server error" });
-  }
-});
-
-app.get("/api/top-energy-consumers/:labId", async (req, res) => {
-  try {
-    const { labId } = req.params;
-
-    // Since we don't have device-level data, we'll simulate it based on lab characteristics
-    const dashboardResult = await pool.query(
-      `SELECT current_power_watts, active_devices
-       FROM ${DB_SCHEMA}.lab_dashboard
-       WHERE lab_id = $1`,
-      [labId]
-    );
-
-    const currentPower = dashboardResult.rows.length > 0
-      ? parseFloat(dashboardResult.rows[0].current_power_watts)
-      : 1000;
-
-    const activeDevices = dashboardResult.rows.length > 0
-      ? parseInt(dashboardResult.rows[0].active_devices)
-      : 10;
-
-    // Simulate top consumers based on lab power
-    const consumers = [
-      { device: 'HVAC System', power: Math.round(currentPower * 0.35) },
-      { device: 'Computing Equipment', power: Math.round(currentPower * 0.25) },
-      { device: 'Lighting System', power: Math.round(currentPower * 0.20) },
-      { device: 'Lab Equipment', power: Math.round(currentPower * 0.15) }
-    ];
-
-    res.json(consumers);
-  } catch (error) {
-    console.error("Error fetching top energy consumers:", error);
-    res.status(500).json({ message: "Server error" });
-  }
-});
+// ================= START =================
 
 const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, async () => {
-  console.log(`Server running on port ${PORT}`);
-
-  // Initialize device states and start polling
+  console.log(`Server running on ${PORT}`);
   await initializeDeviceStates();
-  console.log("Database polling started for ESP32 triggers");
 });
