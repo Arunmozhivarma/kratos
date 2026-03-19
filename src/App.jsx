@@ -6,7 +6,6 @@ import EnergyMonitoringPage from './pages/EnergyMonitoringPage';
 import HelpPage from './pages/HelpPage';
 import LoginPage from './pages/LoginPage';
 import SensorMonitoringPage from './pages/SensorMonitoringPage';
-import UsersPage from './pages/UsersPage';
 import AnalyticsPage from './pages/AnalyticsPage';
 import ProfilePage from './pages/ProfilePage';
 import SettingsPage from './pages/SettingsPage';
@@ -23,7 +22,6 @@ export default function App() {
         <Route path="sensors" element={<SensorMonitoringPage />} />
         <Route path="devices" element={<DeviceControlPage />} />
         <Route path="analytics" element={<AnalyticsPage />} />
-        <Route path="users" element={<UsersPage />} />
         <Route path="profile" element={<ProfilePage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="help" element={<HelpPage />} />

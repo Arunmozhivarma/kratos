@@ -3,6 +3,13 @@ import RoomVisualization from '../components/RoomVisualization';
 import ToggleSwitch from '../components/ToggleSwitch';
 
 const roomConfigurations = {
+  'test-lab': {
+    id: 'test-lab',
+    name: 'Test Lab (Simulation)',
+    devices: [
+      { id: 'test-device-1', name: 'Test Device 1', type: 'light', position: { x: 200, y: 150 } },
+    ],
+  },
   lab1: {
     id: 'lab1',
     name: 'Lab 1 - E Block 1st Floor',
@@ -94,13 +101,21 @@ const initializeDevices = () => {
 
 export default function DeviceControlPage() {
   const [devices, setDevices] = useState(initializeDevices());
-  const currentRoom = roomConfigurations.lab1;
+
+  // Get the selected lab from localStorage
+  const selectedLabId = localStorage.getItem('kratos_lab_id');
+  const currentRoom = roomConfigurations[selectedLabId] || roomConfigurations.lab1;
+
   const roomDevices = useMemo(
     () => devices.filter((device) => device.zone === currentRoom.name),
     [devices, currentRoom.name]
   );
 
-  const toggleDevice = (deviceId, newState) => {
+  const toggleDevice = async (deviceId, newState) => {
+    // Check if this is the test lab device
+    const selectedLabId = localStorage.getItem('kratos_lab_id');
+    const isTestLab = selectedLabId === 'test-lab';
+
     setDevices((prevDevices) =>
       prevDevices.map((device) =>
         device.id === deviceId
@@ -108,6 +123,21 @@ export default function DeviceControlPage() {
           : device
       )
     );
+
+    // Send hardware control request for test lab
+    if (isTestLab && deviceId === 'test-device-1') {
+      try {
+        const endpoint = newState ? '/on' : '/off';
+        await fetch(`http://192.168.0.100${endpoint}`, {
+          method: 'GET',
+          mode: 'no-cors'
+        });
+        // Note: no-cors mode means we won't get response details
+      } catch (error) {
+        // Silently handle hardware errors - device state still updates in UI
+        console.log('Hardware control attempted (device may be offline)');
+      }
+    }
   };
 
   return (
@@ -143,9 +173,8 @@ export default function DeviceControlPage() {
                   <h3 className="font-semibold text-gray-800">{device.name}</h3>
                   <div className="mt-1 flex items-center">
                     <span
-                      className={`mr-2 inline-block h-2 w-2 rounded-full ${
-                        device.enabled ? 'bg-emerald-500' : 'bg-gray-400'
-                      }`}
+                      className={`mr-2 inline-block h-2 w-2 rounded-full ${device.enabled ? 'bg-emerald-500' : 'bg-gray-400'
+                        }`}
                     />
                     <span className="text-sm text-gray-600">{device.enabled ? 'Active' : 'Inactive'}</span>
                   </div>
