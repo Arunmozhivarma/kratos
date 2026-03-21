@@ -10,12 +10,18 @@ import AnalyticsPage from './pages/AnalyticsPage';
 import ProfilePage from './pages/ProfilePage';
 import SettingsPage from './pages/SettingsPage';
 import LabSelectionPage from './pages/LabSelectionPage';
+import LabCreationPage from './pages/LabCreationPage';
+import ZoneConfigurationPage from './pages/ZoneConfigurationPage';
+import CameraLivePage from './pages/CameraLivePage';
 
 export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/lab-select" element={<LabSelectionPage />} />
+      <Route path="/lab-create" element={<LabCreationPage />} />
+      <Route path="/zone-config" element={<ZoneConfigurationPage />} />
+      <Route path="/camera-live" element={<CameraLivePage />} />
       <Route path="/app" element={<AppLayout />}>
         <Route path="dashboard" element={<DashboardPage />} />
         <Route path="energy" element={<EnergyMonitoringPage />} />

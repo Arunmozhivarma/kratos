@@ -44,7 +44,17 @@ def mouse_callback(event, x, y, flags, param):
             print("No Fan ID set. Press 'n' first.")
 
 
-cap = cv2.VideoCapture(1, cv2.CAP_DSHOW)
+# Try to initialize camera with fallback
+cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+if not cap.isOpened():
+    print("Failed to open camera 0, trying camera 1...")
+    cap = cv2.VideoCapture(1, cv2.CAP_DSHOW)
+    if not cap.isOpened():
+        print("Failed to open any camera. Please check camera connections.")
+        exit(1)
+
+print(f"Camera opened successfully: {cap.get(cv2.CAP_PROP_FRAME_WIDTH)}x{cap.get(cv2.CAP_PROP_FRAME_HEIGHT)}")
+
 cv2.namedWindow("Zone Config")
 cv2.setMouseCallback("Zone Config", mouse_callback)
 

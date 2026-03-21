@@ -82,6 +82,27 @@ export default function LabSelectionPage() {
     navigate('/app/dashboard');
   };
 
+  const handleCameraClick = (lab) => {
+    const selectedLabId = lab.lab_id ?? lab.id ?? null;
+
+    if (!selectedLabId) {
+      console.error('Lab ID missing. Cannot open camera.');
+      return;
+    }
+
+    // Navigate to camera live view with lab info
+    navigate('/camera-live', {
+      state: {
+        labId: selectedLabId,
+        labName: lab.name
+      }
+    });
+  };
+
+  const handleCreateLab = () => {
+    navigate('/lab-create');
+  };
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-app-bg to-white px-4 dark:from-gray-900 dark:to-gray-800">
       <div className="card-surface w-full max-w-4xl p-8">
@@ -103,21 +124,54 @@ export default function LabSelectionPage() {
             Loading labs...
           </div>
         ) : labs.length === 0 ? (
-          <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-            Labs are not configured for this department yet.
+          <div className="mt-6 space-y-4">
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+              Labs are not configured for this department yet.
+            </div>
+            <button
+              onClick={handleCreateLab}
+              className="w-full rounded-xl bg-emerald-600 px-4 py-3 font-medium text-white transition hover:bg-emerald-700"
+            >
+              Create New Lab
+            </button>
           </div>
         ) : (
-          <div className="mt-6 grid gap-3 md:grid-cols-2">
-            {labs.map((lab) => (
+          <div className="mt-6 space-y-4">
+            <div className="grid gap-3 md:grid-cols-2">
+              {labs.map((lab) => (
+                <div key={lab.lab_id ?? lab.id ?? lab.name} className="rounded-xl border border-emerald-100 p-4 dark:border-gray-600">
+                  <div className="flex justify-between items-start mb-3">
+                    <p className="font-semibold">{lab.name}</p>
+                    <button
+                      onClick={() => handleCameraClick(lab)}
+                      className="rounded-lg bg-blue-600 hover:bg-blue-700 px-3 py-1 text-xs font-medium text-white transition"
+                      title="Open Camera"
+                    >
+                      📷 Camera
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleLabClick(lab)}
+                    className="w-full rounded-xl border border-gray-200 px-3 py-2 text-left transition hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700 text-sm"
+                  >
+                    Enter Dashboard
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <div className="border-t border-gray-200 pt-4 dark:border-gray-600">
               <button
-                key={lab.lab_id ?? lab.id ?? lab.name}
-                type="button"
-                onClick={() => handleLabClick(lab)}
-                className="rounded-xl border border-emerald-100 p-4 text-left transition hover:bg-emerald-50 dark:border-gray-600 dark:hover:bg-gray-700"
+                onClick={handleCreateLab}
+                className="w-full rounded-xl bg-emerald-600 px-4 py-3 font-medium text-white transition hover:bg-emerald-700"
               >
-                <p className="font-semibold">{lab.name}</p>
+                Create New Lab
               </button>
-            ))}
+              <p className="mt-2 text-center text-sm text-gray-600 dark:text-gray-400">
+                Add a new lab to the {department} department
+              </p>
+            </div>
           </div>
         )}
 
