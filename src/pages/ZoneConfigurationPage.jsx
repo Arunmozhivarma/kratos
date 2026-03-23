@@ -182,7 +182,7 @@ export default function ZoneConfigurationPage() {
       const response = await fetch('http://localhost:5000/api/devices', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ device_id: fanId })
+        body: JSON.stringify({ device_id: fanId, lab_id: labId })
       });
 
       if (!response.ok) {

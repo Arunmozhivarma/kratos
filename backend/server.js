@@ -261,14 +261,15 @@ app.post("/api/login", async (req, res) => {
 app.post("/api/devices", async (req, res) => {
   try {
     const result = await pool.query(
-      `INSERT INTO ${DB_SCHEMA}.devices (device_id, device_status)
-       VALUES ($1,false)
-       ON CONFLICT DO NOTHING RETURNING *`,
-      [req.body.device_id]
+      `INSERT INTO ${DB_SCHEMA}.devices (device_id, device_status, lab_id)
+       VALUES ($1,false,$2)
+       ON CONFLICT (lab_id, device_id) DO NOTHING RETURNING *`,
+      [req.body.device_id, req.body.lab_id]
     );
 
-    if (!result.rows.length)
+    if (!result.rows.length) {
       return res.status(409).json({ message: "Exists" });
+    }
 
     res.json(result.rows[0]);
   } catch (error) {
@@ -600,8 +601,8 @@ app.post("/api/devices/update", async (req, res) => {
     const result = await pool.query(
       `UPDATE ${DB_SCHEMA}.devices
        SET device_status=$1
-       WHERE device_id=$2 RETURNING *`,
-      [state, req.body.fan_id]
+       WHERE device_id=$2 AND lab_id=$3 RETURNING *`,
+      [state, req.body.fan_id, req.body.lab_id]
     );
 
     res.json(result.rows[0]);
