@@ -19,6 +19,7 @@ export default function CameraLivePage() {
   const [error, setError] = useState('');
   const [detectionStatus, setDetectionStatus] = useState({});
   const [isDetectionRunning, setIsDetectionRunning] = useState(false);
+  const [streamKey, setStreamKey] = useState(Date.now());
 
   useEffect(() => {
     if (!labId) {
@@ -27,12 +28,9 @@ export default function CameraLivePage() {
     }
 
     loadZones();
-    startCamera();
+    // Python handles the camera natively now
 
     return () => {
-      if (stream) {
-        stream.getTracks().forEach(track => track.stop());
-      }
       // Stop detection when leaving
       if (isDetectionRunning) {
         stopDetection();
@@ -63,56 +61,11 @@ export default function CameraLivePage() {
   };
 
   const startCamera = async () => {
-    try {
-      const mediaStream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
-        }
-      });
-      setStream(mediaStream);
-      if (videoRef.current) {
-        videoRef.current.srcObject = mediaStream;
-      }
-    } catch (err) {
-      console.error('Error accessing camera:', err);
-      setError('Failed to access camera. Please ensure camera permissions are granted.');
-    }
+    // Camera is now completely processed remotely by Python Flask stream.
   };
 
   const drawZones = () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // Draw zones with different colors for different config boxes
-    Object.entries(zones).forEach(([zoneKey, zone]) => {
-      const [[x1, y1], [x2, y2]] = zone;
-      const isActive = detectionStatus[zoneKey];
-
-      // Extract config box number
-      const configBoxMatch = zoneKey.match(/configBox(\d+)/);
-      const configBoxNumber = configBoxMatch ? parseInt(configBoxMatch[1]) : 1;
-
-      const colors = [
-        { border: '#10b981', fill: 'rgba(16, 185, 129, 0.2)' },
-        { border: '#f59e0b', fill: 'rgba(245, 158, 11, 0.2)' }
-      ];
-      const color = colors[(configBoxNumber - 1) % colors.length];
-
-      ctx.strokeStyle = isActive ? '#00ff00' : color.border;
-      ctx.lineWidth = 3;
-      ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
-
-      // Draw zone label
-      ctx.fillStyle = isActive ? '#00ff00' : color.border;
-      ctx.fillRect(x1, y1 - 25, 120, 20);
-      ctx.fillStyle = '#000000';
-      ctx.font = 'bold 12px Arial';
-      ctx.fillText(`${zoneKey}: ${isActive ? 'ON' : 'OFF'}`, x1 + 2, y1 - 10);
-    });
+    // Zones are directly rendered natively onto the visual video frame by Python (cv2).
   };
 
   const startDetection = async () => {
@@ -187,6 +140,7 @@ export default function CameraLivePage() {
     navigate('/lab-select');
   };
 
+
   return (
     <div className="flex min-h-screen bg-gradient-to-br from-app-bg to-white dark:from-gray-900 dark:to-gray-800">
       <div className="w-full p-4">
@@ -245,21 +199,31 @@ export default function CameraLivePage() {
             <div className="lg:col-span-3">
               <div className="card-surface p-6">
                 <h2 className="text-xl font-semibold text-primary mb-4">Live Camera Feed</h2>
-                <div className="relative bg-black rounded-lg overflow-hidden">
-                  <video
-                    ref={videoRef}
-                    autoPlay
-                    playsInline
-                    className="w-full h-auto"
-                    style={{ maxHeight: '600px' }}
-                  />
-                  <canvas
-                    ref={canvasRef}
-                    width={1280}
-                    height={720}
-                    className="absolute top-0 left-0 w-full h-full"
-                    style={{ maxHeight: '600px' }}
-                  />
+                <div className="relative bg-black rounded-lg overflow-hidden min-h-[400px] flex items-center justify-center">
+                  {isDetectionRunning ? (
+                    <img 
+                      src={`http://localhost:5001/video_feed?t=${streamKey}`} 
+                      alt="Camera Live Stream"
+                      className="w-full h-auto object-contain"
+                      style={{ maxHeight: '600px' }}
+                      onError={(e) => {
+                        e.target.style.display = 'none';
+                        setError('Waiting for camera stream connection... (this may take a few seconds)');
+                        setTimeout(() => {
+                          setStreamKey(Date.now());
+                        }, 2000);
+                      }}
+                      onLoad={(e) => {
+                        e.target.style.display = 'block';
+                        setError(''); // Clear error when connected
+                      }}
+                    />
+                  ) : (
+                    <div className="text-gray-400 text-center py-20">
+                      <p>Camera feed will appear here when detection is started.</p>
+                      <p className="text-sm mt-2">Click "Start Detection" to begin</p>
+                    </div>
+                  )}
                 </div>
                 <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
                   {Object.keys(zones).length === 0

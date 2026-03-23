@@ -8,6 +8,7 @@ export default function ZoneConfigurationPage() {
 
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
+  const streamRef = useRef(null);
   const [stream, setStream] = useState(null);
   const [zones, setZones] = useState({});
   const [currentFanId, setCurrentFanId] = useState('');
@@ -24,8 +25,10 @@ export default function ZoneConfigurationPage() {
     startCamera();
     loadExistingZones();
     return () => {
-      if (stream) {
-        stream.getTracks().forEach(track => track.stop());
+      // Use standard stream reference for termination to avoid React lifecycle null-out of DOM nodes
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current = null;
       }
     };
   }, [labId]);
@@ -56,6 +59,7 @@ export default function ZoneConfigurationPage() {
           height: { ideal: 720 }
         }
       });
+      streamRef.current = mediaStream;
       setStream(mediaStream);
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream;
@@ -67,7 +71,13 @@ export default function ZoneConfigurationPage() {
   };
 
   const handleMouseDown = (e) => {
-    if (isTyping || !currentFanId) return;
+    if (isTyping) return;
+
+    if (!currentFanId) {
+      setError('You must click "Set Fan ID" and enter a number before drawing a zone!');
+      setTimeout(() => setError(''), 4000);
+      return;
+    }
 
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -193,10 +203,6 @@ export default function ZoneConfigurationPage() {
         setMessage(`Fan ID set to: ${currentFanId}`);
       }
       setIsTyping(false);
-    } else if (e.key === 'Backspace') {
-      setCurrentFanId(prev => prev.slice(0, -1));
-    } else if (e.key >= '0' && e.key <= '9') {
-      setCurrentFanId(prev => prev + e.key);
     }
   };
 

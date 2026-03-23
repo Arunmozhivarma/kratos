@@ -314,6 +314,10 @@ app.get("/api/zones", async (req, res) => {
       return res.status(400).json({ message: "labId is required" });
     }
 
+    if (labId === 'test-lab') {
+      return res.json({});
+    }
+
     // Get all zones for this lab with their configuration boxes
     const result = await pool.query(
       `SELECT device_id, zone_name, zone_coordinates 
@@ -348,6 +352,10 @@ app.post("/api/zones", async (req, res) => {
 
     if (!labId) {
       return res.status(400).json({ message: "labId is required" });
+    }
+
+    if (labId === 'test-lab') {
+      return res.json({ message: "Test lab zones are not persisted", labId, zonesCount: 0, zones: [] });
     }
 
     // Clear existing zones for this lab
@@ -395,14 +403,11 @@ app.post("/api/start-detection", async (req, res) => {
       return res.status(400).json({ message: "Detection is already running" });
     }
 
-    // Save zones to file for main.py to use
-    const zonesPath = path.join(__dirname, '../occupancy_detection/zones.json');
-    fs.writeFileSync(zonesPath, JSON.stringify(zones, null, 2));
-
     console.log(`Starting detection for lab ${labId} with zones:`, zones);
 
     // Start the main.py detection script
-    detectionProcess = spawn('python', ['main.py'], {
+    const pythonExecutable = path.join(__dirname, '../occupancy_detection/venv/bin/python');
+    detectionProcess = spawn(pythonExecutable, ['main.py', labId.toString()], {
       cwd: path.join(__dirname, '../occupancy_detection'),
       stdio: 'pipe'
     });
@@ -418,17 +423,13 @@ app.post("/api/start-detection", async (req, res) => {
       const lines = data.toString().trim().split('\n');
       lines.forEach(line => {
         if (line.includes('Updated')) {
-          // Parse status updates like "Updated 1 to ON"
-          const match = line.match(/Updated (\d+) to (ON|OFF)/);
+          // Parse status updates like "Updated configBox1_1 to ON"
+          const match = line.match(/Updated (.+) to (ON|OFF)/);
           if (match) {
-            const fanId = match[1];
+            const zoneKey = match[1];
             const status = match[2] === 'ON';
-            // Set status for all zones with this fan ID
-            Object.keys(currentDetectionStatus).forEach(zoneKey => {
-              if (zoneKey.endsWith(`_${fanId}`)) {
-                currentDetectionStatus[zoneKey] = status;
-              }
-            });
+            // Set status for this specific zoneKey
+            currentDetectionStatus[zoneKey] = status;
           }
         }
       });
@@ -496,8 +497,9 @@ app.post("/api/labs/:labId/configure-zones", async (req, res) => {
     console.log(`Starting zone configuration for lab ${labId}`);
 
     // Run the zone configuration Python script
-    const pythonProcess = spawn('python', ['zoneConfig.py'], {
-      cwd: '../occupancy_detection',
+    const pythonExecutable = path.join(__dirname, '../occupancy_detection/venv/bin/python');
+    const pythonProcess = spawn(pythonExecutable, ['zoneConfig.py'], {
+      cwd: path.join(__dirname, '../occupancy_detection'),
       stdio: 'pipe'
     });
 

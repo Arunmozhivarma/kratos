@@ -1,6 +1,7 @@
 import cv2
 import json
 import requests
+import platform
 
 BACKEND_URL = "http://localhost:5000/api/devices"
 
@@ -45,7 +46,10 @@ def mouse_callback(event, x, y, flags, param):
 
 
 # Try to initialize camera with fallback
-cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+if platform.system() == "Windows":
+    cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+else:
+    cap = cv2.VideoCapture(0)
 if not cap.isOpened():
     print("Failed to open camera 0, trying camera 1...")
     cap = cv2.VideoCapture(1, cv2.CAP_DSHOW)

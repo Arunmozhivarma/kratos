@@ -1,82 +1,177 @@
+import sys
+import time
+import threading
 from ultralytics import YOLO
 import cv2
-import json
 import requests
+import platform
+import logging
+from flask import Flask, Response
+from flask_cors import CORS
 
-# Load zones
-with open("zones.json", "r") as f:
-    zones = json.load(f)
+# Suppress Flask default logging to avoid cluttering stdout for Node.js
+log = logging.getLogger('werkzeug')
+log.setLevel(logging.ERROR)
 
-# Load YOLO model
-model = YOLO("yolov8n.pt")
+app = Flask(__name__)
+CORS(app) # Allow cross-origin requests from React
+current_frame = None
+lock = threading.Lock()
 
-# Backend API endpoint
-BACKEND_URL = "http://localhost:5000/api/devices/update"
+@app.route('/video_feed')
+def video_feed():
+    def generate():
+        global current_frame
+        while True:
+            with lock:
+                if current_frame is None:
+                    time.sleep(0.01)
+                    continue
+                # Encode the frame in JPEG format
+                ret, jpeg = cv2.imencode('.jpg', current_frame)
+                if not ret:
+                    time.sleep(0.01)
+                    continue
+                frame_bytes = jpeg.tobytes()
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+            time.sleep(0.03)  # limit frame rate
+    return Response(generate(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
-# Track previous statuses to avoid unnecessary API calls
-previous_statuses = {fan_id: False for fan_id in zones.keys()}
+def run_detection(lab_id):
+    global current_frame
 
-cap = cv2.VideoCapture(1, cv2.CAP_DSHOW)
+    # Fetch zones from the Node backend API instead of local json
+    try:
+        api_url = f"http://localhost:5000/api/zones?labId={lab_id}"
+        print(f"Fetching zones from: {api_url}", flush=True)
+        response = requests.get(api_url)
+        if response.status_code == 200:
+            zones = response.json()
+        else:
+            print(f"Failed to fetch zones. Status: {response.status_code}", flush=True)
+            zones = {}
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching zones: {e}", flush=True)
+        zones = {}
 
-while True:
-    ret, frame = cap.read()
-    if not ret:
-        break
+    print(f"Loaded zones covering {len(zones)} locations: {list(zones.keys())}", flush=True)
 
-    results = model(frame, verbose=False)
+    # Load YOLO model
+    model = YOLO("yolov8n.pt")
 
-    # Track which fans are occupied this frame
-    fan_status = {fan_id: False for fan_id in zones.keys()}
+    # Backend API endpoint to report device status
+    BACKEND_URL = "http://localhost:5000/api/devices/update"
 
-    for result in results:
-        for box in result.boxes:
-            cls = int(box.cls[0])
+    previous_statuses = {zone_key: False for zone_key in zones.keys()}
 
-            if model.names[cls] == "person":
-                x1, y1, x2, y2 = map(int, box.xyxy[0])
+    print("Waiting for camera access. Starting YOLO detection loop...", flush=True)
+    cap = None
 
-                # Draw person box
-                cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
+    while True:
+        if cap is None or not cap.isOpened():
+            if platform.system() == "Windows":
+                cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+            else:
+                cap = cv2.VideoCapture(0)
+            
+            if not cap.isOpened():
+                print("Camera locked or unavailable. Retrying...", flush=True)
+                time.sleep(2)
+                continue
 
-                # Calculate center point
-                cx = (x1 + x2) // 2
-                cy = (y1 + y2) // 2
+        ret, frame = cap.read()
+        if not ret:
+            cap.release()
+            time.sleep(1)
+            continue
 
-                # Check each fan zone
-                for fan_id, zone in zones.items():
-                    (zx1, zy1), (zx2, zy2) = zone
+        results = model(frame, verbose=False)
 
-                    if zx1 <= cx <= zx2 and zy1 <= cy <= zy2:
-                        fan_status[fan_id] = True
-    
-    # Send updates to backend only if status changed
-    for fan_id, status in fan_status.items():
-        if status != previous_statuses[fan_id]:
-            try:
-                response = requests.post(BACKEND_URL, json={"fan_id": fan_id, "status": "ON" if status else "OFF"})
-                if response.status_code == 200:
-                    print(f"Updated {fan_id} to {'ON' if status else 'OFF'}")
-                else:
-                    print(f"Failed to update {fan_id}: {response.status_code}")
-            except requests.exceptions.RequestException as e:
-                print(f"Error sending update for {fan_id}: {e}")
-            previous_statuses[fan_id] = status
+        # Track which fan zones are occupied this frame
+        fan_status = {zone_key: False for zone_key in zones.keys()}
 
-    # Draw zones and show status
-    for fan_id, zone in zones.items():
-        (zx1, zy1), (zx2, zy2) = zone
+        for result in results:
+            for box in result.boxes:
+                cls = int(box.cls[0])
 
-        color = (0, 255, 0) if fan_status[fan_id] else (0, 0, 255)
-        cv2.rectangle(frame, (zx1, zy1), (zx2, zy2), color, 2)
+                if model.names[cls] == "person":
+                    x1, y1, x2, y2 = map(int, box.xyxy[0])
 
-        status_text = f"{fan_id}: ON" if fan_status[fan_id] else f"{fan_id}: OFF"
-        cv2.putText(frame, status_text, (zx1, zy1 - 10),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+                    # Draw person box directly onto frame
+                    cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
 
-    cv2.imshow("Occupancy Detection", frame)
+                    # Calculate center point
+                    cx = (x1 + x2) // 2
+                    cy = (y1 + y2) // 2
 
-    if cv2.waitKey(1) & 0xFF == ord("q"):
-        break
+                    h, w = frame.shape[:2]
+                    
+                    # Check each bounded zone
+                    for zone_key, zone in zones.items():
+                        (zx1, zy1), (zx2, zy2) = zone
+                        
+                        # Scale from frontend 1280x720 canvas coordinates to actual camera frame resolution
+                        zx1 = int(zx1 * w / 1280.0)
+                        zy1 = int(zy1 * h / 720.0)
+                        zx2 = int(zx2 * w / 1280.0)
+                        zy2 = int(zy2 * h / 720.0)
 
-cap.release()
-cv2.destroyAllWindows()
+                        if min(zx1, zx2) <= cx <= max(zx1, zx2) and min(zy1, zy2) <= cy <= max(zy1, zy2):
+                            fan_status[zone_key] = True
+
+        # Send updates to backend only if status changed
+        for zone_key, status in fan_status.items():
+            if status != previous_statuses[zone_key]:
+                # Extract the actual integer device key (e.g. configBox1_1 -> 1)
+                actual_fan_id = zone_key.split('_')[-1]
+                try:
+                    resp = requests.post(BACKEND_URL, json={"fan_id": actual_fan_id, "status": "ON" if status else "OFF"})
+                    if resp.status_code == 200:
+                        # Output string identically parsed by Node (flush guarantees immediate read)
+                        print(f"Updated {zone_key} to {'ON' if status else 'OFF'}", flush=True)
+                    else:
+                        print(f"Failed to update {zone_key}: {resp.status_code}", flush=True)
+                except requests.exceptions.RequestException as e:
+                    print(f"Error sending update for {zone_key}: {e}", flush=True)
+                previous_statuses[zone_key] = status
+
+        h, w = frame.shape[:2]
+
+        # Draw zones and show status
+        for zone_key, zone in zones.items():
+            (zx1, zy1), (zx2, zy2) = zone
+            zx1 = int(zx1 * w / 1280.0)
+            zy1 = int(zy1 * h / 720.0)
+            zx2 = int(zx2 * w / 1280.0)
+            zy2 = int(zy2 * h / 720.0)
+
+            color = (0, 255, 0) if fan_status[zone_key] else (0, 0, 255)
+            cv2.rectangle(frame, (zx1, zy1), (zx2, zy2), color, 2)
+
+            status_text = f"{zone_key}: ON" if fan_status[zone_key] else f"{zone_key}: OFF"
+            # Ensure text is not drawn outside image if zy1 is near 0
+            text_y = zy1 - 10 if zy1 > 20 else min(zy1, zy2) + 20
+            
+            cv2.putText(frame, status_text, (zx1, text_y),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+
+        # Update global frame for stream rendering
+        with lock:
+            current_frame = frame.copy()
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print("Usage: python main.py <labId>")
+        sys.exit(1)
+
+    try:
+        lab_id = sys.argv[1]
+    except Exception as e:
+        print(f"Error reading labId: {e}", flush=True)
+        sys.exit(1)
+
+    # Start Flask MJPEG endpoint as a background daemon
+    threading.Thread(target=lambda: app.run(host='0.0.0.0', port=5001, debug=False, use_reloader=False), daemon=True).start()
+
+    run_detection(lab_id)
