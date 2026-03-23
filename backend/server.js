@@ -5,6 +5,7 @@ const axios = require("axios");
 const { spawn } = require("child_process");
 const fs = require("fs");
 const path = require("path");
+const os = require("os");
 const pool = require("./db");
 require("dotenv").config();
 
@@ -405,8 +406,12 @@ app.post("/api/start-detection", async (req, res) => {
 
     console.log(`Starting detection for lab ${labId} with zones:`, zones);
 
-    // Start the main.py detection script
-    const pythonExecutable = path.join(__dirname, '../occupancy_detection/venv/bin/python');
+    // Start the main.py detection script supporting cross-platform OS paths
+    const isWindows = os.platform() === 'win32';
+    const pythonExecutable = isWindows 
+      ? path.join(__dirname, '../occupancy_detection/venv/Scripts/python.exe')
+      : path.join(__dirname, '../occupancy_detection/venv/bin/python');
+      
     detectionProcess = spawn(pythonExecutable, ['main.py', labId.toString()], {
       cwd: path.join(__dirname, '../occupancy_detection'),
       stdio: 'pipe'
