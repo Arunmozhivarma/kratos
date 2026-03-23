@@ -16,26 +16,23 @@ log.setLevel(logging.ERROR)
 app = Flask(__name__)
 CORS(app) # Allow cross-origin requests from React
 current_frame = None
-lock = threading.Lock()
+condition = threading.Condition()
 
 @app.route('/video_feed')
 def video_feed():
     def generate():
         global current_frame
         while True:
-            with lock:
-                if current_frame is None:
-                    time.sleep(0.01)
-                    continue
-                # Encode the frame in JPEG format
-                ret, jpeg = cv2.imencode('.jpg', current_frame)
-                if not ret:
-                    time.sleep(0.01)
-                    continue
-                frame_bytes = jpeg.tobytes()
+            with condition:
+                # Wait blocks the generator until YOLO says a completely new frame is fully processed
+                condition.wait()
+                frame_bytes = current_frame
+            
+            if frame_bytes is None:
+                continue
+                
             yield (b'--frame\r\n'
                    b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
-            time.sleep(0.03)  # limit frame rate
     return Response(generate(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 def run_detection(lab_id):
@@ -74,6 +71,9 @@ def run_detection(lab_id):
                 cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
             else:
                 cap = cv2.VideoCapture(0)
+            
+            # Prevent camera hardware buffer from stacking old frames and causing massive lag
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
             
             if not cap.isOpened():
                 print("Camera locked or unavailable. Retrying...", flush=True)
@@ -156,9 +156,14 @@ def run_detection(lab_id):
             cv2.putText(frame, status_text, (zx1, text_y),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
 
-        # Update global frame for stream rendering
-        with lock:
-            current_frame = frame.copy()
+        # Compress frame to JPEG instantly (quality 70 for speed and lower network latency)
+        ret, jpeg = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
+        if ret:
+            frame_bytes = jpeg.tobytes()
+            # Safely notify all streaming web browsers that a fresh image is explicitly ready to draw
+            with condition:
+                current_frame = frame_bytes
+                condition.notify_all()
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
