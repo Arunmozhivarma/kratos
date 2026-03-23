@@ -408,9 +408,12 @@ app.post("/api/start-detection", async (req, res) => {
 
     // Start the main.py detection script supporting cross-platform OS paths
     const isWindows = os.platform() === 'win32';
-    const pythonExecutable = isWindows 
+    const venvPython = isWindows 
       ? path.join(__dirname, '../occupancy_detection/venv/Scripts/python.exe')
       : path.join(__dirname, '../occupancy_detection/venv/bin/python');
+      
+    // Fallback to global python if venv doesn't exist
+    const pythonExecutable = fs.existsSync(venvPython) ? venvPython : (isWindows ? 'python' : 'python3');
       
     detectionProcess = spawn(pythonExecutable, ['main.py', labId.toString()], {
       cwd: path.join(__dirname, '../occupancy_detection'),
