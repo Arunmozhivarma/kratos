@@ -126,7 +126,12 @@ def run_detection(lab_id):
                 # Extract the actual integer device key (e.g. configBox1_1 -> 1)
                 actual_fan_id = zone_key.split('_')[-1]
                 try:
-                    resp = requests.post(BACKEND_URL, json={"fan_id": actual_fan_id, "status": "ON" if status else "OFF"})
+                    payload = {
+                        "fan_id": actual_fan_id,
+                        "lab_id": lab_id,
+                        "status": "ON" if status else "OFF"
+                    }
+                    resp = requests.post(BACKEND_URL, json=payload)
                     if resp.status_code == 200:
                         # Output string identically parsed by Node (flush guarantees immediate read)
                         print(f"Updated {zone_key} to {'ON' if status else 'OFF'}", flush=True)
