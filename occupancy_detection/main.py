@@ -71,9 +71,9 @@ def run_detection(lab_id):
     while True:
         if cap is None or not cap.isOpened():
             if platform.system() == "Windows":
-                cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+                cap = cv2.VideoCapture(1, cv2.CAP_DSHOW)
             else:
-                cap = cv2.VideoCapture(0)
+                cap = cv2.VideoCapture(1)
             
             if not cap.isOpened():
                 print("Camera locked or unavailable. Retrying...", flush=True)
