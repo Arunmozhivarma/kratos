@@ -485,6 +485,9 @@ app.get("/api/zones", async (req, res) => {
 });
 
 app.post("/api/zones", async (req, res) => {
+  const client = await pool.connect();
+  let transactionStarted = false;
+
   try {
     const { labId, zones } = req.body;
 
@@ -496,26 +499,62 @@ app.post("/api/zones", async (req, res) => {
       return res.json({ message: "Test lab zones are not persisted", labId, zonesCount: 0, zones: [] });
     }
 
+    const zoneEntries = Object.entries(zones || {});
+    const configuredDeviceIds = [...new Set(
+      zoneEntries
+        .map(([zoneKey]) => {
+          const parts = zoneKey.split('_');
+          return Number.parseInt(parts[parts.length - 1], 10);
+        })
+        .filter((deviceId) => Number.isInteger(deviceId))
+    )];
+
+    await client.query('BEGIN');
+    transactionStarted = true;
+
     // Clear existing zones for this lab
-    await pool.query(
+    await client.query(
       `DELETE FROM ${DB_SCHEMA}.zones WHERE lab_id = $1`,
       [labId]
     );
 
     // Insert new zones with unique configuration boxes
-    for (const [zoneKey, coordinates] of Object.entries(zones)) {
+    for (const [zoneKey, coordinates] of zoneEntries) {
       // Parse zoneKey to extract zone_name and device_id
       // Format: "configBox1_device1" or similar
       const parts = zoneKey.split('_');
-      const device_id = parts[parts.length - 1]; // Last part is device_id
+      const device_id = Number.parseInt(parts[parts.length - 1], 10); // Last part is the physical device id
       const zone_name = parts.slice(0, -1).join('_'); // Everything except last part
 
-      await pool.query(
+      if (!Number.isInteger(device_id)) {
+        throw new Error(`Invalid device id in zone key: ${zoneKey}`);
+      }
+
+      await client.query(
         `INSERT INTO ${DB_SCHEMA}.zones (lab_id, device_id, zone_name, zone_coordinates)
          VALUES ($1, $2, $3, $4)`,
         [labId, device_id, zone_name, JSON.stringify(coordinates)]
       );
     }
+
+    await client.query(
+      `DELETE FROM ${DB_SCHEMA}.devices
+       WHERE lab_id = $1
+         AND NOT (device_id = ANY($2::int[]))`,
+      [labId, configuredDeviceIds]
+    );
+
+    for (const deviceId of configuredDeviceIds) {
+      await client.query(
+        `INSERT INTO ${DB_SCHEMA}.devices (device_id, device_status, lab_id)
+         VALUES ($1, false, $2)
+         ON CONFLICT (lab_id, device_id)
+         DO UPDATE SET lab_id = EXCLUDED.lab_id`,
+        [deviceId, labId]
+      );
+    }
+
+    await client.query('COMMIT');
 
     // Also save to file for main.py compatibility
     const zonesPath = path.join(__dirname, '../occupancy_detection/zones.json');
@@ -528,8 +567,13 @@ app.post("/api/zones", async (req, res) => {
       zones: Object.keys(zones)
     });
   } catch (error) {
+    if (transactionStarted) {
+      await client.query('ROLLBACK');
+    }
     console.error("Error saving zones:", error);
     res.status(500).json({ message: "Server error" });
+  } finally {
+    client.release();
   }
 });
 
