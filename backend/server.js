@@ -12,6 +12,7 @@ require("dotenv").config();
 const app = express();
 const DB_SCHEMA = (process.env.DB_SCHEMA || "public").replace(/[^a-zA-Z0-9_]/g, "");
 const OCCUPANCY_DIR = path.join(__dirname, "../occupancy_detection");
+const ENABLE_DB_TO_ESP32_SYNC = process.env.ENABLE_DB_TO_ESP32_SYNC === "true";
 
 // Store previous device states to detect changes
 let previousDeviceStates = new Map();
@@ -22,13 +23,10 @@ const ESP32_IP = "http://10.70.103.109";
 // Function to trigger ESP32
 async function triggerESP32(deviceId, state) {
   try {
-    if (state) {
-      console.log(`Turning fan ${deviceId} OFF (ESP32 logic inverted)`);
-      await axios.get(`${ESP32_IP}/off`, { timeout: 5000 });
-    } else {
-      console.log(`Turning fan ${deviceId} ON (ESP32 logic inverted)`);
-      await axios.get(`${ESP32_IP}/on`, { timeout: 5000 });
-    }
+    const action = state ? "on" : "off";
+    const endpoint = `${ESP32_IP}/${action}${deviceId}`;
+    console.log(`Sending ESP32 command: ${endpoint}`);
+    await axios.get(endpoint, { timeout: 5000 });
   } catch (err) {
     console.error(`ESP32 error:`, err.message);
   }
@@ -55,7 +53,12 @@ async function pollDatabaseForChanges() {
   }
 }
 
-setInterval(pollDatabaseForChanges, 2000);
+if (ENABLE_DB_TO_ESP32_SYNC) {
+  console.log("DB->ESP32 polling is enabled");
+  setInterval(pollDatabaseForChanges, 2000);
+} else {
+  console.log("DB->ESP32 polling is disabled (zone-detection controls ESP32 directly)");
+}
 
 // Init states
 async function initializeDeviceStates() {
@@ -706,6 +709,39 @@ app.get("/api/energy-consumption/:labId", async (req, res) => {
 });
 
 // ================= DEVICE UPDATE =================
+
+app.post("/api/esp32/control", async (req, res) => {
+  try {
+    const { device_id, status } = req.body;
+    const resolvedDeviceId = device_id;
+
+    if (!resolvedDeviceId || status === undefined) {
+      return res.status(400).json({
+        message: "device_id and status required"
+      });
+    }
+
+    const normalizedDeviceId = String(resolvedDeviceId);
+    if (!["1", "2"].includes(normalizedDeviceId)) {
+      return res.status(400).json({
+        message: "device_id must be 1 or 2 in simulation mode"
+      });
+    }
+
+    const deviceStatus = status === "ON" || status === true;
+    await triggerESP32(normalizedDeviceId, deviceStatus);
+
+    res.status(200).json({
+      message: "ESP32 command sent",
+      device_id: normalizedDeviceId,
+      lab_id,
+      status: deviceStatus
+    });
+  } catch (error) {
+    console.error("Error sending ESP32 command:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
 
 app.post("/api/devices/update", async (req, res) => {
   try {
