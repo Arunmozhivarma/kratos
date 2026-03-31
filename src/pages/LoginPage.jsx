@@ -2,8 +2,14 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   clearLabSelection,
+  getSelectedDepartmentId as getStoredDepartmentId,
+  getSelectedLab,
+  getSelectedLabId,
   setSelectedDepartment as saveSelectedDepartment,
+  setSelectedLab,
+  setSelectedUserProfile,
 } from '../data/labs';
+import { getLandingPageRoute } from '../data/settings';
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -86,6 +92,12 @@ export default function LoginPage() {
 
       const departmentName = getSelectedDepartmentName();
       saveSelectedDepartment(departmentName, selectedDepartmentId);
+      setSelectedUserProfile({
+        username: data.username,
+        email: data.email,
+        identifier: data.email ?? signupEmail,
+        lastLoginAt: new Date().toISOString(),
+      });
       clearLabSelection();
 
       navigate('/lab-select');
@@ -128,10 +140,25 @@ export default function LoginPage() {
         return;
       }
 
+      const previousDepartmentId = getStoredDepartmentId();
+      const previousLabName = getSelectedLab();
+      const previousLabId = getSelectedLabId();
       const departmentName = getSelectedDepartmentName();
       saveSelectedDepartment(departmentName, selectedDepartmentId);
-      clearLabSelection();
+      setSelectedUserProfile({
+        username: data.username,
+        email: data.email,
+        identifier: data.email ?? loginIdentifier,
+        lastLoginAt: new Date().toISOString(),
+      });
 
+      if (String(previousDepartmentId) === String(selectedDepartmentId) && previousLabId) {
+        setSelectedLab(previousLabName, previousLabId);
+        navigate(getLandingPageRoute());
+        return;
+      }
+
+      clearLabSelection();
       navigate('/lab-select');
     } catch (err) {
       console.error('Login error:', err);

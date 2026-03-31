@@ -3,6 +3,10 @@ export const SESSION_STORAGE_KEYS = {
   departmentId: 'kratos_department_id',
   lab: 'kratos_lab',
   labId: 'kratos_lab_id',
+  userIdentifier: 'kratos_user_identifier',
+  username: 'kratos_username',
+  userEmail: 'kratos_user_email',
+  lastLoginAt: 'kratos_last_login_at',
 };
 
 export function clearLabSelection() {
@@ -26,6 +30,22 @@ export function getSelectedLabId() {
   return localStorage.getItem(SESSION_STORAGE_KEYS.labId) ?? '';
 }
 
+export function getSelectedUserIdentifier() {
+  return localStorage.getItem(SESSION_STORAGE_KEYS.userIdentifier) ?? '';
+}
+
+export function getSelectedUsername() {
+  return localStorage.getItem(SESSION_STORAGE_KEYS.username) ?? '';
+}
+
+export function getSelectedUserEmail() {
+  return localStorage.getItem(SESSION_STORAGE_KEYS.userEmail) ?? '';
+}
+
+export function getLastLoginAt() {
+  return localStorage.getItem(SESSION_STORAGE_KEYS.lastLoginAt) ?? '';
+}
+
 export function setSelectedDepartment(departmentName, departmentId) {
   localStorage.setItem(SESSION_STORAGE_KEYS.department, String(departmentName ?? ''));
 
@@ -46,5 +66,35 @@ export function setSelectedLab(labName, labId) {
     localStorage.setItem(SESSION_STORAGE_KEYS.labId, String(labId));
   } else {
     localStorage.removeItem(SESSION_STORAGE_KEYS.labId);
+  }
+}
+
+export function setSelectedUserIdentifier(identifier) {
+  if (identifier !== undefined && identifier !== null && identifier !== '') {
+    localStorage.setItem(SESSION_STORAGE_KEYS.userIdentifier, String(identifier));
+  } else {
+    localStorage.removeItem(SESSION_STORAGE_KEYS.userIdentifier);
+  }
+}
+
+export function setSelectedUserProfile({ username, email, identifier, lastLoginAt }) {
+  setSelectedUserIdentifier(identifier ?? email ?? username ?? '');
+
+  if (username !== undefined && username !== null && username !== '') {
+    localStorage.setItem(SESSION_STORAGE_KEYS.username, String(username));
+  } else {
+    localStorage.removeItem(SESSION_STORAGE_KEYS.username);
+  }
+
+  if (email !== undefined && email !== null && email !== '') {
+    localStorage.setItem(SESSION_STORAGE_KEYS.userEmail, String(email));
+  } else {
+    localStorage.removeItem(SESSION_STORAGE_KEYS.userEmail);
+  }
+
+  if (lastLoginAt !== undefined && lastLoginAt !== null && lastLoginAt !== '') {
+    localStorage.setItem(SESSION_STORAGE_KEYS.lastLoginAt, String(lastLoginAt));
+  } else {
+    localStorage.removeItem(SESSION_STORAGE_KEYS.lastLoginAt);
   }
 }
