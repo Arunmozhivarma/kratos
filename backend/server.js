@@ -256,6 +256,49 @@ app.post("/api/login", async (req, res) => {
   }
 });
 
+app.post("/api/change-password", async (req, res) => {
+  try {
+    const { identifier, department_id, currentPassword, newPassword } = req.body;
+
+    if (!identifier || !department_id || !currentPassword || !newPassword) {
+      return res.status(400).json({ message: "identifier, department_id, currentPassword, and newPassword are required" });
+    }
+
+    const result = await pool.query(
+      `SELECT * FROM ${DB_SCHEMA}.users
+       WHERE (username=$1 OR email=$1)
+       AND department_id=$2`,
+      [identifier, department_id]
+    );
+
+    if (!result.rows.length) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const user = result.rows[0];
+    const match = await bcrypt.compare(currentPassword, user.password_hash);
+
+    if (!match) {
+      return res.status(401).json({ message: "Current password is incorrect" });
+    }
+
+    const newHash = await bcrypt.hash(newPassword, 10);
+
+    await pool.query(
+      `UPDATE ${DB_SCHEMA}.users
+       SET password_hash=$1
+       WHERE (username=$2 OR email=$2)
+       AND department_id=$3`,
+      [newHash, identifier, department_id]
+    );
+
+    res.json({ message: "Password updated successfully" });
+  } catch (error) {
+    console.error("Change password error:", error);
+    res.status(500).json({ message: "Change password error" });
+  }
+});
+
 // ================= DEVICES =================
 
 app.post("/api/devices", async (req, res) => {

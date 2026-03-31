@@ -7,7 +7,6 @@ import {
   getSelectedLab,
   getSelectedLabId,
 } from '../data/labs';
-
 export default function DashboardPage() {
   const [mainLights, setMainLights] = useState(true);
   const [fan, setFan] = useState(false);
