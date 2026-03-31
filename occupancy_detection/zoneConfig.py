@@ -47,9 +47,9 @@ def mouse_callback(event, x, y, flags, param):
 
 # Try to initialize camera with fallback
 if platform.system() == "Windows":
-    cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+    cap = cv2.VideoCapture(1, cv2.CAP_DSHOW)
 else:
-    cap = cv2.VideoCapture(0)
+    cap = cv2.VideoCapture(1)
 if not cap.isOpened():
     print("Failed to open camera 0, trying camera 1...")
     cap = cv2.VideoCapture(1, cv2.CAP_DSHOW)

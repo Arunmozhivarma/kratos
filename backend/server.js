@@ -16,7 +16,7 @@ const DB_SCHEMA = (process.env.DB_SCHEMA || "public").replace(/[^a-zA-Z0-9_]/g, 
 let previousDeviceStates = new Map();
 
 // ESP32 IP Configuration
-const ESP32_IP = "http://10.70.103.109";
+const ESP32_IP = "http://10.20.3.109";
 
 // Function to trigger ESP32
 async function triggerESP32(deviceId, state) {
