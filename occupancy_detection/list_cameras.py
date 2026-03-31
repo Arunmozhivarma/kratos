@@ -4,6 +4,12 @@ import platform
 
 import cv2
 
+WINDOWS_BACKENDS = [
+    ("dshow", cv2.CAP_DSHOW),
+    ("msmf", cv2.CAP_MSMF),
+    ("default", None),
+]
+
 
 def get_linux_camera_name(index):
     path = f"/sys/class/video4linux/video{index}/name"
@@ -16,20 +22,45 @@ def get_linux_camera_name(index):
     return None
 
 
-def probe_camera(index):
-    if platform.system() == "Windows":
-        cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)
-    else:
+def _try_open(index, backend):
+    if backend is None:
         cap = cv2.VideoCapture(index)
+    else:
+        cap = cv2.VideoCapture(index, backend)
 
     if not cap.isOpened():
         cap.release()
         return None
 
+    # Some Windows drivers need one read before reporting sane properties.
+    cap.read()
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     cap.release()
+    return width, height
 
+
+def probe_camera(index):
+    if platform.system() == "Windows":
+        for backend_name, backend in WINDOWS_BACKENDS:
+            opened = _try_open(index, backend)
+            if opened is None:
+                continue
+
+            width, height = opened
+            return {
+                "index": index,
+                "label": f"Camera {index} ({backend_name})",
+                "width": width,
+                "height": height
+            }
+        return None
+
+    opened = _try_open(index, None)
+    if opened is None:
+        return None
+
+    width, height = opened
     label = get_linux_camera_name(index) if platform.system() == "Linux" else None
     if not label:
         label = f"Camera {index}"
@@ -74,7 +105,8 @@ def pick_preferred_index(cameras):
 
 def main():
     cameras = []
-    for i in range(10):
+    max_probe = 20 if platform.system() == "Windows" else 10
+    for i in range(max_probe):
         cam = probe_camera(i)
         if cam is not None:
             cameras.append(cam)
