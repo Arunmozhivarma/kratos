@@ -11,6 +11,7 @@ require("dotenv").config();
 
 const app = express();
 const DB_SCHEMA = (process.env.DB_SCHEMA || "public").replace(/[^a-zA-Z0-9_]/g, "");
+const OCCUPANCY_DIR = path.join(__dirname, "../occupancy_detection");
 
 // Store previous device states to detect changes
 let previousDeviceStates = new Map();
@@ -76,6 +77,85 @@ app.use(express.json());
 
 app.get("/", (req, res) => {
   res.send("KRATOS backend is running");
+});
+
+function resolvePythonExecutable() {
+  const isWindows = os.platform() === "win32";
+  const venvPython = isWindows
+    ? path.join(OCCUPANCY_DIR, "venv/Scripts/python.exe")
+    : path.join(OCCUPANCY_DIR, "venv/bin/python");
+
+  if (fs.existsSync(venvPython)) {
+    return venvPython;
+  }
+
+  return isWindows ? "python" : "python3";
+}
+
+// ================= CAMERA DISCOVERY =================
+
+app.get("/api/cameras", async (req, res) => {
+  try {
+    const pythonExecutable = resolvePythonExecutable();
+    const cameraProcess = spawn(pythonExecutable, ["list_cameras.py"], {
+      cwd: OCCUPANCY_DIR,
+      stdio: "pipe"
+    });
+
+    let output = "";
+    let errorOutput = "";
+    let hasResponded = false;
+
+    cameraProcess.stdout.on("data", (data) => {
+      output += data.toString();
+    });
+
+    cameraProcess.stderr.on("data", (data) => {
+      errorOutput += data.toString();
+    });
+
+    cameraProcess.on("close", (code) => {
+      if (hasResponded) {
+        return;
+      }
+
+      if (code !== 0) {
+        hasResponded = true;
+        console.error("Camera discovery failed:", errorOutput || `Exit code ${code}`);
+        return res.status(500).json({ message: "Failed to detect cameras" });
+      }
+
+      try {
+        const parsed = JSON.parse(output);
+        const cameras = Array.isArray(parsed.cameras) ? parsed.cameras : [];
+        const preferredIndex = Number.isInteger(parsed.preferred_index)
+          ? parsed.preferred_index
+          : (cameras[0]?.index ?? 0);
+
+        hasResponded = true;
+        return res.json({
+          cameras,
+          preferredIndex
+        });
+      } catch (parseError) {
+        hasResponded = true;
+        console.error("Failed to parse camera discovery output:", parseError);
+        return res.status(500).json({ message: "Invalid camera discovery output" });
+      }
+    });
+
+    cameraProcess.on("error", (error) => {
+      if (hasResponded) {
+        return;
+      }
+      hasResponded = true;
+      console.error("Failed to run camera discovery:", error);
+      res.status(500).json({ message: "Camera discovery process error" });
+    });
+  } catch (error) {
+    console.error("Error getting cameras:", error);
+    res.status(500).json({ message: "Server error" });
+  }
 });
 
 // ================= BASIC APIs =================
@@ -399,26 +479,22 @@ app.post("/api/zones", async (req, res) => {
 
 app.post("/api/start-detection", async (req, res) => {
   try {
-    const { labId, zones } = req.body;
+    const { labId, zones, cameraIndex } = req.body;
+    const parsedCameraIndex = Number.parseInt(cameraIndex, 10);
+    const selectedCameraIndex = Number.isNaN(parsedCameraIndex) ? 0 : parsedCameraIndex;
 
     if (detectionProcess) {
       return res.status(400).json({ message: "Detection is already running" });
     }
 
-    console.log(`Starting detection for lab ${labId} with zones:`, zones);
+    console.log(`Starting detection for lab ${labId} with camera ${selectedCameraIndex} and zones:`, zones);
 
     // Start the main.py detection script supporting cross-platform OS paths
-    const isWindows = os.platform() === 'win32';
-    const venvPython = isWindows 
-      ? path.join(__dirname, '../occupancy_detection/venv/Scripts/python.exe')
-      : path.join(__dirname, '../occupancy_detection/venv/bin/python');
+    const pythonExecutable = resolvePythonExecutable();
       
-    // Fallback to global python if venv doesn't exist
-    const pythonExecutable = fs.existsSync(venvPython) ? venvPython : (isWindows ? 'python' : 'python3');
-      
-    detectionProcess = spawn(pythonExecutable, ['main.py', labId.toString()], {
-      cwd: path.join(__dirname, '../occupancy_detection'),
-      stdio: 'pipe'
+    detectionProcess = spawn(pythonExecutable, ["main.py", labId.toString(), selectedCameraIndex.toString()], {
+      cwd: OCCUPANCY_DIR,
+      stdio: "pipe"
     });
 
     let output = '';
@@ -463,6 +539,7 @@ app.post("/api/start-detection", async (req, res) => {
     res.json({
       message: "Detection started successfully",
       labId: labId,
+      cameraIndex: selectedCameraIndex,
       zones: Object.keys(zones)
     });
 
