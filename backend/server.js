@@ -11,6 +11,7 @@ require("dotenv").config();
 
 const app = express();
 const DB_SCHEMA = (process.env.DB_SCHEMA || "public").replace(/[^a-zA-Z0-9_]/g, "");
+const OCCUPANCY_DIR = path.join(__dirname, "../occupancy_detection");
 
 // Store previous device states to detect changes
 let previousDeviceStates = new Map();
@@ -76,6 +77,121 @@ app.use(express.json());
 
 app.get("/", (req, res) => {
   res.send("KRATOS backend is running");
+});
+
+function resolvePythonExecutable() {
+  const isWindows = os.platform() === "win32";
+  const venvPython = isWindows
+    ? path.join(OCCUPANCY_DIR, "venv/Scripts/python.exe")
+    : path.join(OCCUPANCY_DIR, "venv/bin/python");
+
+  if (fs.existsSync(venvPython)) {
+    return venvPython;
+  }
+
+  return isWindows ? "python" : "python3";
+}
+
+function parseCameraJson(output) {
+  const raw = (output || "").trim();
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(raw);
+  } catch {
+    // OpenCV logs can pollute stdout; recover by parsing the last JSON-like line.
+    const lines = raw.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+    for (let i = lines.length - 1; i >= 0; i -= 1) {
+      const line = lines[i];
+      if (line.startsWith("{") && line.endsWith("}")) {
+        try {
+          return JSON.parse(line);
+        } catch {
+          // keep scanning
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+// ================= CAMERA DISCOVERY =================
+
+app.get("/api/cameras", async (req, res) => {
+  try {
+    const isWindows = os.platform() === "win32";
+    const candidates = [resolvePythonExecutable(), isWindows ? "python" : "python3"];
+
+    const runDiscovery = (pythonExecutable) => new Promise((resolve) => {
+      const cameraProcess = spawn(pythonExecutable, ["list_cameras.py"], {
+        cwd: OCCUPANCY_DIR,
+        stdio: "pipe"
+      });
+
+      let output = "";
+      let errorOutput = "";
+
+      cameraProcess.stdout.on("data", (data) => {
+        output += data.toString();
+      });
+
+      cameraProcess.stderr.on("data", (data) => {
+        errorOutput += data.toString();
+      });
+
+      cameraProcess.on("close", (code) => {
+        resolve({
+          ok: code === 0,
+          pythonExecutable,
+          output,
+          errorOutput,
+        });
+      });
+
+      cameraProcess.on("error", (error) => {
+        resolve({
+          ok: false,
+          pythonExecutable,
+          output,
+          errorOutput: `${errorOutput}\n${error.message}`.trim(),
+        });
+      });
+    });
+
+    let lastFailure = null;
+    for (const pythonExecutable of [...new Set(candidates)]) {
+      const result = await runDiscovery(pythonExecutable);
+      if (!result.ok) {
+        lastFailure = result;
+        continue;
+      }
+
+      const parsed = parseCameraJson(result.output);
+      if (!parsed) {
+        lastFailure = result;
+        continue;
+      }
+
+      const cameras = Array.isArray(parsed.cameras) ? parsed.cameras : [];
+      const preferredIndex = Number.isInteger(parsed.preferred_index)
+        ? parsed.preferred_index
+        : (cameras[0]?.index ?? 0);
+
+      return res.json({
+        cameras,
+        preferredIndex
+      });
+    }
+
+    console.error("Camera discovery failed:", lastFailure?.errorOutput || "Unknown error");
+    return res.status(500).json({ message: "Failed to detect cameras" });
+  } catch (error) {
+    console.error("Error getting cameras:", error);
+    res.status(500).json({ message: "Server error" });
+  }
 });
 
 // ================= BASIC APIs =================
@@ -304,14 +420,15 @@ app.post("/api/change-password", async (req, res) => {
 app.post("/api/devices", async (req, res) => {
   try {
     const result = await pool.query(
-      `INSERT INTO ${DB_SCHEMA}.devices (device_id, device_status)
-       VALUES ($1,false)
-       ON CONFLICT DO NOTHING RETURNING *`,
-      [req.body.device_id]
+      `INSERT INTO ${DB_SCHEMA}.devices (device_id, device_status, lab_id)
+       VALUES ($1,false,$2)
+       ON CONFLICT (lab_id, device_id) DO NOTHING RETURNING *`,
+      [req.body.device_id, req.body.lab_id]
     );
 
-    if (!result.rows.length)
+    if (!result.rows.length) {
       return res.status(409).json({ message: "Exists" });
+    }
 
     res.json(result.rows[0]);
   } catch (error) {
@@ -418,26 +535,22 @@ app.post("/api/zones", async (req, res) => {
 
 app.post("/api/start-detection", async (req, res) => {
   try {
-    const { labId, zones } = req.body;
+    const { labId, zones, cameraIndex } = req.body;
+    const parsedCameraIndex = Number.parseInt(cameraIndex, 10);
+    const selectedCameraIndex = Number.isNaN(parsedCameraIndex) ? 0 : parsedCameraIndex;
 
     if (detectionProcess) {
       return res.status(400).json({ message: "Detection is already running" });
     }
 
-    console.log(`Starting detection for lab ${labId} with zones:`, zones);
+    console.log(`Starting detection for lab ${labId} with camera ${selectedCameraIndex} and zones:`, zones);
 
     // Start the main.py detection script supporting cross-platform OS paths
-    const isWindows = os.platform() === 'win32';
-    const venvPython = isWindows
-      ? path.join(__dirname, '../occupancy_detection/venv/Scripts/python.exe')
-      : path.join(__dirname, '../occupancy_detection/venv/bin/python');
-
-    // Fallback to global python if venv doesn't exist
-    const pythonExecutable = fs.existsSync(venvPython) ? venvPython : (isWindows ? 'python' : 'python3');
-
-    detectionProcess = spawn(pythonExecutable, ['main.py', labId.toString()], {
-      cwd: path.join(__dirname, '../occupancy_detection'),
-      stdio: 'pipe'
+    const pythonExecutable = resolvePythonExecutable();
+      
+    detectionProcess = spawn(pythonExecutable, ["main.py", labId.toString(), selectedCameraIndex.toString()], {
+      cwd: OCCUPANCY_DIR,
+      stdio: "pipe"
     });
 
     let output = '';
@@ -482,6 +595,7 @@ app.post("/api/start-detection", async (req, res) => {
     res.json({
       message: "Detection started successfully",
       labId: labId,
+      cameraIndex: selectedCameraIndex,
       zones: Object.keys(zones)
     });
 
@@ -620,8 +734,8 @@ app.post("/api/devices/update", async (req, res) => {
     const result = await pool.query(
       `UPDATE ${DB_SCHEMA}.devices
        SET device_status=$1
-       WHERE device_id=$2 RETURNING *`,
-      [state, req.body.fan_id]
+       WHERE device_id=$2 AND lab_id=$3 RETURNING *`,
+      [state, req.body.fan_id, req.body.lab_id]
     );
 
     res.json(result.rows[0]);
