@@ -18,14 +18,9 @@ let previousDeviceStates = new Map();
 
 // ESP32 IP Configuration
 const ESP32_IP = "http://10.20.3.109";
-const ENABLE_ESP32 = process.env.ENABLE_ESP32 === 'true';
 
 // Function to trigger ESP32
 async function triggerESP32(deviceId, state) {
-  if (!ENABLE_ESP32) {
-    return; // Skip ESP32 calls if not enabled
-  }
-
   try {
     if (state) {
       console.log(`Turning fan ${deviceId} OFF (ESP32 logic inverted)`);
@@ -41,10 +36,6 @@ async function triggerESP32(deviceId, state) {
 
 // Poll DB
 async function pollDatabaseForChanges() {
-  if (!ENABLE_ESP32) {
-    return; // Skip polling if ESP32 is not enabled
-  }
-
   try {
     const result = await pool.query(
       `SELECT device_id, device_status FROM ${DB_SCHEMA}.devices`
@@ -64,20 +55,10 @@ async function pollDatabaseForChanges() {
   }
 }
 
-// Only start polling if ESP32 is enabled
-if (ENABLE_ESP32) {
-  setInterval(pollDatabaseForChanges, 2000);
-  console.log("🤖 ESP32 polling enabled (every 2 seconds)");
-} else {
-  console.log("🔌 ESP32 polling disabled");
-}
+setInterval(pollDatabaseForChanges, 2000);
 
 // Init states
 async function initializeDeviceStates() {
-  if (!ENABLE_ESP32) {
-    return; // Skip ESP32 state initialization if not enabled
-  }
-
   try {
     const result = await pool.query(
       `SELECT device_id, device_status FROM ${DB_SCHEMA}.devices`
@@ -308,6 +289,8 @@ app.post("/api/devices", async (req, res) => {
   }
 });
 
+
+
 // ================= CAMERA & DETECTION APIs =================
 
 let detectionProcess = null;
@@ -530,88 +513,9 @@ app.post("/api/labs/:labId/bulk-assign-devices", async (req, res) => {
   try {
     const { labId } = req.params;
     const { deviceIds } = req.body;
-
-    if (!Array.isArray(deviceIds) || deviceIds.length === 0) {
-      return res.status(400).json({ message: "deviceIds must be a non-empty array" });
-    }
-
-    const result = await ZoneAutomationService.bulkAssignDevicesToLab(labId, deviceIds);
-
-    res.json({
-      message: "Devices assigned to lab successfully",
-      labId: labId,
-      totalDevices: result.totalDevices,
-      zonesCreated: result.zonesCreated,
-      results: result.results
-    });
-
-  } catch (error) {
-    console.error("Error bulk assigning devices to lab:", error);
-    res.status(500).json({ message: "Server error" });
-  }
-});
-
-app.post("/api/setup-zones-for-all-labs", async (req, res) => {
-  try {
-    const result = await ZoneAutomationService.createZonesForAllExistingLabs();
-
-    res.json({
-      message: "Zone setup completed for all labs",
-      totalLabs: result.totalLabs,
-      results: result.results
-    });
-
-  } catch (error) {
-    console.error("Error setting up zones for all labs:", error);
-    res.status(500).json({ message: "Server error" });
-  }
-});
-
-app.get("/api/labs/:labId/zone-integrity", async (req, res) => {
-  try {
-    const { labId } = req.params;
-    const result = await ZoneAutomationService.validateZoneIntegrity(labId);
-
-    res.json(result);
-
-  } catch (error) {
-    console.error("Error validating zone integrity:", error);
-    res.status(500).json({ message: "Server error" });
-  }
-});
-
-// ================= ENERGY =================
-
-app.get("/api/energy-consumption/:labId", async (req, res) => {
-  try {
-    const { labId } = req.params;
-    if (labId === 'test-lab') {
-      // Return mock energy consumption data for test lab
-      const mockData = [];
-      const today = new Date();
-      for (let i = 6; i >= 0; i--) {
-        const date = new Date(today);
-        date.setDate(date.getDate() - i);
-        mockData.push({
-          date: date.toISOString().split('T')[0],
-          total: (Math.random() * 10 + 5).toFixed(2) // Random energy between 5-15 kWh
-        });
-      }
-      return res.json(mockData);
-    }
-
-    const result = await pool.query(
-      `SELECT date, SUM(energy_kwh) total
-       FROM ${DB_SCHEMA}.energy_consumption
-       WHERE lab_id=$1 GROUP BY date`,
-      [labId]
-    );
-    res.json(result.rows);
-  } catch (error) {
-    console.error("Error fetching energy consumption:", error);
     res.status(500).json({ message: "Error" });
   }
-});
+    });
 
 // ================= DEVICE UPDATE =================
 
