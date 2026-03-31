@@ -91,8 +91,8 @@ def run_detection(lab_id, preferred_camera_index):
     # Load YOLO model
     model = YOLO("yolov8n.pt")
 
-    # Backend API endpoint to report device status
-    BACKEND_URL = "http://localhost:5000/api/devices/update"
+    # Backend API endpoint that forwards zone-driven ON/OFF to ESP32.
+    BACKEND_URL = "http://localhost:5000/api/esp32/control"
 
     previous_statuses = {zone_key: False for zone_key in zones.keys()}
     last_fan_status = {zone_key: False for zone_key in zones.keys()}
@@ -214,12 +214,11 @@ def run_detection(lab_id, preferred_camera_index):
             # Send updates to backend only if status changed
             for zone_key, status in fan_status.items():
                 if status != previous_statuses[zone_key]:
-                    # Extract the actual integer device key (e.g. configBox1_1 -> 1)
-                    actual_fan_id = zone_key.split('_')[-1]
+                    # Extract the actual device id from zone key (e.g. configBox1_1 -> 1)
+                    actual_device_id = zone_key.split('_')[-1]
                     try:
                         payload = {
-                            "fan_id": actual_fan_id,
-                            "lab_id": lab_id,
+                            "device_id": actual_device_id,
                             "status": "ON" if status else "OFF"
                         }
                         status_queue.put_nowait((zone_key, "ON" if status else "OFF", payload))

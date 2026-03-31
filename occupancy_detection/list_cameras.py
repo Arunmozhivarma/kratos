@@ -15,8 +15,6 @@ except Exception:
 
 WINDOWS_BACKENDS = [
     ("dshow", cv2.CAP_DSHOW),
-    ("msmf", cv2.CAP_MSMF),
-    ("default", None),
 ]
 
 
@@ -115,10 +113,16 @@ def pick_preferred_index(cameras):
 def main():
     cameras = []
     max_probe = 20 if platform.system() == "Windows" else 10
+    consecutive_failures = 0
     for i in range(max_probe):
         cam = probe_camera(i)
         if cam is not None:
             cameras.append(cam)
+            consecutive_failures = 0
+        else:
+            consecutive_failures += 1
+            if consecutive_failures >= 3:
+                break
 
     preferred_index = pick_preferred_index(cameras)
 
