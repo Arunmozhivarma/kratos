@@ -214,11 +214,9 @@ def run_detection(lab_id, preferred_camera_index):
             # Send updates to backend only if status changed
             for zone_key, status in fan_status.items():
                 if status != previous_statuses[zone_key]:
-                    # Extract the actual integer device key (e.g. configBox1_1 -> 1)
-                    actual_fan_id = zone_key.split('_')[-1]
                     try:
                         payload = {
-                            "fan_id": actual_fan_id,
+                            "fan_id": zone_key.split('_')[-1],
                             "lab_id": lab_id,
                             "status": "ON" if status else "OFF"
                         }
