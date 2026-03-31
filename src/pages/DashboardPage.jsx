@@ -6,23 +6,22 @@ import {
   getSelectedDepartmentId,
   getSelectedLab,
   getSelectedLabId,
-  setSelectedLab,
 } from '../data/labs';
-
 export default function DashboardPage() {
   const [mainLights, setMainLights] = useState(true);
   const [fan, setFan] = useState(false);
+
   const [dashboardStats, setDashboardStats] = useState([
     { label: 'Current Power', value: '--' },
     { label: 'Energy Today', value: '--' },
     { label: 'Active Devices', value: '--' },
     { label: 'Last Updated', value: '--' },
   ]);
+
   const [dashboardError, setDashboardError] = useState('');
   const [energyData, setEnergyData] = useState([]);
-  const [currentLabId, setCurrentLabId] = useState('');
 
-  // Function to fetch dashboard data
+  // 🔥 Main fetch function
   const fetchDashboardData = useCallback(() => {
     const labId = getSelectedLabId();
     const departmentId = getSelectedDepartmentId();
@@ -34,28 +33,20 @@ export default function DashboardPage() {
     console.log('Lab Name:', labName);
 
     if (!labId) {
-      console.log('No lab selected, skipping data fetch.');
-      setDashboardStats([
-        { label: 'Current Power', value: '--' },
-        { label: 'Energy Today', value: '--' },
-        { label: 'Active Devices', value: '--' },
-        { label: 'Last Updated', value: '--' },
-      ]);
-      setDashboardError('Please select a lab to view dashboard data.');
+      setDashboardError('Please select a lab.');
       setEnergyData([]);
       return;
     }
 
-    // Fetch dashboard stats
+    // =========================
+    // 📊 Dashboard Stats
+    // =========================
     fetch(`http://localhost:5000/api/dashboard/${encodeURIComponent(labId)}`)
       .then((res) => {
-        if (!res.ok) {
-          throw new Error('Failed to load dashboard values by lab ID');
-        }
+        if (!res.ok) throw new Error('Failed to load dashboard data');
         return res.json();
       })
       .then((data) => {
-        console.log('Dashboard response by lab ID:', data);
         const formattedUpdatedAt = data.last_updated
           ? new Date(data.last_updated).toLocaleString()
           : '--';
@@ -78,80 +69,125 @@ export default function DashboardPage() {
             value: formattedUpdatedAt,
           },
         ]);
+
         setDashboardError('');
       })
-      .catch((error) => {
-        console.error('Error fetching dashboard by lab ID:', error);
-        setDashboardError('Could not load dashboard values.');
+      .catch((err) => {
+        console.error(err);
+        setDashboardError('Failed to load dashboard stats');
       });
 
-    // Fetch energy consumption data
-    fetch(`http://localhost:5000/api/energy-consumption/${encodeURIComponent(labId)}?days=7`)
+    // =========================
+    // 📈 Energy Chart Data
+    // =========================
+    fetch(
+      `http://localhost:5000/api/energy-consumption/${encodeURIComponent(
+        labId
+      )}?days=7`
+    )
       .then((res) => {
-        if (!res.ok) {
-          throw new Error('Failed to load energy consumption data');
-        }
+        if (!res.ok) throw new Error('Failed to load energy data');
         return res.json();
       })
       .then((data) => {
         console.log('Energy consumption data:', data);
-        // Format data for chart: [{date: '2024-03-01', kWh: 25.5}, ...]
-        const formattedData = data.map(item => ({
-          date: new Date(item.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-          kWh: parseFloat(item.daily_total)
-        }));
+
+        const formattedData = data
+          .map((item) => ({
+            dateObj: new Date(item.date),
+            kWh: parseFloat(item.total), // ✅ FIXED
+          }))
+          .sort((a, b) => a.dateObj - b.dateObj) // ✅ SORT
+          .map((item) => ({
+            date: item.dateObj.toLocaleDateString('en-US', {
+              month: 'short',
+              day: 'numeric',
+            }),
+            kWh: item.kWh,
+          }));
+
         setEnergyData(formattedData);
       })
-      .catch((error) => {
-        console.error('Error fetching energy consumption:', error);
+      .catch((err) => {
+        console.error(err);
         setEnergyData([]);
       });
   }, []);
 
-  // Check for lab changes and fetch data
+  // ✅ Initial load
   useEffect(() => {
-    const labId = getSelectedLabId();
-    if (labId !== currentLabId) {
-      console.log('Lab changed from', currentLabId, 'to', labId);
-      setCurrentLabId(labId || '');
-      fetchDashboardData();
-    }
-  }, [getSelectedLabId(), currentLabId, fetchDashboardData]);
+    fetchDashboardData();
+  }, [fetchDashboardData]);
 
-  // Add a refresh mechanism when page becomes visible
+  // ✅ Refresh when tab becomes active
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (!document.hidden) {
-        console.log('Page became visible, refreshing data...');
+        console.log('Tab active → refreshing...');
         fetchDashboardData();
       }
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [fetchDashboardData]);
-
-  // Initial fetch
-  useEffect(() => {
-    fetchDashboardData();
+    return () =>
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [fetchDashboardData]);
 
   return (
     <div className="grid gap-6 xl:grid-cols-12">
+      {/* 📈 Chart */}
       <div className="space-y-6 xl:col-span-8">
         <EnergyChartCard data={energyData} />
       </div>
+
+      {/* 📊 Stats + Controls */}
       <div className="space-y-6 xl:col-span-4">
-        {dashboardError ? <p className="text-sm text-rose-500">{dashboardError}</p> : null}
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">{dashboardStats.map((stat) => <StatCard key={stat.label} label={stat.label} value={stat.value} />)}</div>
+        {dashboardError && (
+          <p className="text-sm text-rose-500">{dashboardError}</p>
+        )}
+
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
+          {dashboardStats.map((stat) => (
+            <StatCard
+              key={stat.label}
+              label={stat.label}
+              value={stat.value}
+            />
+          ))}
+        </div>
+
+        {/* ⚡ Controls */}
         <div className="card-surface p-5">
           <h3 className="mb-4 font-semibold">Quick Device Control</h3>
+
           <div className="space-y-3 text-sm">
-            <div className="flex items-center justify-between"><span>Main Lights</span><ToggleSwitch checked={mainLights} onChange={setMainLights} /></div>
-            <div className="flex items-center justify-between"><span>Fan</span><ToggleSwitch checked={fan} onChange={setFan} /></div>
+            <div className="flex items-center justify-between">
+              <span>Main Lights</span>
+              <ToggleSwitch
+                checked={mainLights}
+                onChange={setMainLights}
+              />
+            </div>
+
+            <div className="flex items-center justify-between">
+              <span>Fan</span>
+              <ToggleSwitch checked={fan} onChange={setFan} />
+            </div>
           </div>
-          <button onClick={() => { setMainLights(false); setFan(false); }} className="mt-4 w-full rounded-xl border border-rose-300 px-3 py-2 text-sm font-medium text-rose-600">Emergency OFF</button>
-          <p className="mt-2 text-xs text-gray-500">Manual override enabled</p>
+
+          <button
+            onClick={() => {
+              setMainLights(false);
+              setFan(false);
+            }}
+            className="mt-4 w-full rounded-xl border border-rose-300 px-3 py-2 text-sm font-medium text-rose-600"
+          >
+            Emergency OFF
+          </button>
+
+          <p className="mt-2 text-xs text-gray-500">
+            Manual override enabled
+          </p>
         </div>
       </div>
     </div>

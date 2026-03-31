@@ -189,12 +189,13 @@ export default function ZoneConfigurationPage() {
         throw new Error('Failed to create device');
       }
 
-      return true;
-    } catch (err) {
-      console.error('Error creating device:', err);
-      return false;
-    }
-  };
+    if (!response.ok) throw new Error('Failed to create device');
+    return true;
+  } catch (err) {
+    console.error('Error creating device:', err);
+    return false;
+  }
+};
 
   const handleKeyPress = async (e) => {
     if (e.key === 'Enter') {
