@@ -1,6 +1,15 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { getSelectedLabId } from '../data/labs';
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+  Legend,
+  ResponsiveContainer
+} from "recharts";
 
 export default function EnergyMonitoringPage() {
   const [energyComparisons, setEnergyComparisons] = useState([]);
@@ -10,36 +19,42 @@ export default function EnergyMonitoringPage() {
   const [currentLabId, setCurrentLabId] = useState('');
 
   const fetchData = useCallback(async () => {
-    const labId = getSelectedLabId();
-
-    if (!labId) {
-      setError('Please select a lab to view energy monitoring data.');
-      setLoading(false);
-      return;
-    }
-
     try {
+      const labId = getSelectedLabId();
+      console.log('Energy Monitoring: Fetching data for lab', labId);
+
+      if (!labId) {
+        console.log('Energy Monitoring: No lab selected, showing error message');
+        setError('Please select a lab from the dashboard to view energy monitoring data.');
+        setLoading(false);
+        return;
+      }
+
       setLoading(true);
       setError('');
-      console.log('Energy Monitoring: Fetching data for lab', labId);
 
       // Fetch energy comparisons
       const comparisonsResponse = await fetch(`http://localhost:5000/api/energy-comparisons/${encodeURIComponent(labId)}`);
       if (!comparisonsResponse.ok) throw new Error('Failed to fetch energy comparisons');
       const comparisonsData = await comparisonsResponse.json();
-      console.log('Energy comparisons:', comparisonsData);
+      console.log('Energy comparisons received:', comparisonsData);
       setEnergyComparisons(comparisonsData);
+      console.log('Energy comparisons state set:', comparisonsData);
 
       // Fetch power trend
       const powerResponse = await fetch(`http://localhost:5000/api/power-trend/${encodeURIComponent(labId)}`);
       if (!powerResponse.ok) throw new Error('Failed to fetch power trend');
       const powerData = await powerResponse.json();
-      console.log('Power trend:', powerData);
+      console.log('Power trend received:', powerData);
       setPowerLineData(powerData);
+      console.log('Power trend state set:', powerData);
 
     } catch (err) {
       console.error('Error fetching energy monitoring data:', err);
       setError('Failed to load energy monitoring data. Please try again.');
+      // Set empty arrays to prevent rendering errors
+      setEnergyComparisons([]);
+      setPowerLineData([]);
     } finally {
       setLoading(false);
     }
@@ -48,17 +63,19 @@ export default function EnergyMonitoringPage() {
   // Check for lab changes and fetch data
   useEffect(() => {
     const labId = getSelectedLabId();
+    console.log('Energy Monitoring: Lab ID from storage:', labId);
+    console.log('Energy Monitoring: Current lab ID:', currentLabId);
     if (labId !== currentLabId) {
-      console.log('Energy Monitoring: Lab changed from', currentLabId, 'to', labId);
       setCurrentLabId(labId || '');
       fetchData();
     }
-  }, [getSelectedLabId(), currentLabId, fetchData]);
+  }, [getSelectedLabId, currentLabId]); // Removed fetchData from dependencies
 
   // Initial fetch
   useEffect(() => {
+    console.log('Energy Monitoring: Initial fetch triggered');
     fetchData();
-  }, [fetchData]);
+  }, []); // Removed fetchData from dependencies
 
   if (loading) {
     return (
@@ -96,30 +113,46 @@ export default function EnergyMonitoringPage() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">
-        {energyComparisons.map((item) => (
-          <div key={item.label} className="card-surface p-4">
-            <p className="text-sm text-gray-500">{item.label}</p>
-            <p className="text-2xl font-bold">{item.usage}</p>
-            <p className={`text-sm ${item.positive ? 'text-emerald-600' : 'text-rose-600'}`}>{item.compare}</p>
+        {energyComparisons && energyComparisons.length > 0 ? (
+          energyComparisons.map((item) => (
+            <div key={item.period || Math.random()} className="card-surface p-4">
+              <p className="text-sm text-gray-500">{item.period || 'Unknown'}</p>
+              <p className="text-2xl font-bold">{item.consumption || 0} kWh</p>
+              <p className="text-sm text-gray-600">${item.cost || 0} $</p>
+              <p className={`text-sm ${item.comparison >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                {item.comparison >= 0 ? '+' : ''}{item.comparison || 0}%
+              </p>
+            </div>
+          ))
+        ) : (
+          <div className="col-span-3 text-center text-gray-500">
+            No energy comparison data available
           </div>
-        ))}
+        )}
       </div>
 
       <div className="card-surface p-5">
         <h3 className="mb-1 font-semibold">Power Trend</h3>
-        <div className="h-80">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={powerLineData}>
-              <XAxis dataKey="minute" />
-              <YAxis />
-              <Tooltip
-                formatter={(value) => [`${value} W`, 'Power']}
-                labelFormatter={(label) => `Time: ${label}`}
-              />
-              <Line type="monotone" dataKey="power" stroke="#22C55E" strokeWidth={3} dot={false} />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
+        {powerLineData && powerLineData.length > 0 ? (
+          <div style={{ height: '320px', width: '100%', border: '1px solid #ccc', backgroundColor: '#f9f9f9' }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={powerLineData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                <XAxis dataKey="minute" />
+                <YAxis />
+                <Tooltip
+                  formatter={(value) => [`${value} W`, 'Power']}
+                  labelFormatter={(label) => `Time: ${label}`}
+                />
+                <Line type="monotone" dataKey="power" stroke="#22C55E" strokeWidth={3} dot={{ fill: '#22C55E' }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        ) : (
+          <div className="text-center text-gray-500 py-8">
+            No power trend data available
+          </div>
+        )}
       </div>
     </div>
   );

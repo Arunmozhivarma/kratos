@@ -5,6 +5,7 @@ const axios = require("axios");
 const { spawn } = require("child_process");
 const fs = require("fs");
 const path = require("path");
+const os = require("os");
 const pool = require("./db");
 require("dotenv").config();
 
@@ -15,7 +16,7 @@ const DB_SCHEMA = (process.env.DB_SCHEMA || "public").replace(/[^a-zA-Z0-9_]/g, 
 let previousDeviceStates = new Map();
 
 // ESP32 IP Configuration
-const ESP32_IP = "http://10.70.103.109";
+const ESP32_IP = "http://10.20.3.109";
 
 // Function to trigger ESP32
 async function triggerESP32(deviceId, state) {
@@ -276,30 +277,7 @@ app.post("/api/devices", async (req, res) => {
   }
 });
 
-// ================= ZONES TABLE SETUP =================
 
-// Create zones table if it doesn't exist
-app.post("/api/setup-zones-table", async (req, res) => {
-  try {
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS ${DB_SCHEMA}.zones (
-        id SERIAL PRIMARY KEY,
-        lab_id BIGINT NOT NULL,
-        device_id VARCHAR(50) NOT NULL,
-        zone_name VARCHAR(100),
-        zone_coordinates JSONB NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(lab_id, device_id, zone_name)
-      )
-    `);
-
-    res.json({ message: "Zones table created successfully" });
-  } catch (error) {
-    console.error("Error creating zones table:", error);
-    res.status(500).json({ message: "Server error" });
-  }
-});
 
 // ================= CAMERA & DETECTION APIs =================
 
@@ -312,6 +290,10 @@ app.get("/api/zones", async (req, res) => {
 
     if (!labId) {
       return res.status(400).json({ message: "labId is required" });
+    }
+
+    if (labId === 'test-lab') {
+      return res.json({});
     }
 
     // Get all zones for this lab with their configuration boxes
@@ -348,6 +330,10 @@ app.post("/api/zones", async (req, res) => {
 
     if (!labId) {
       return res.status(400).json({ message: "labId is required" });
+    }
+
+    if (labId === 'test-lab') {
+      return res.json({ message: "Test lab zones are not persisted", labId, zonesCount: 0, zones: [] });
     }
 
     // Clear existing zones for this lab
@@ -395,14 +381,18 @@ app.post("/api/start-detection", async (req, res) => {
       return res.status(400).json({ message: "Detection is already running" });
     }
 
-    // Save zones to file for main.py to use
-    const zonesPath = path.join(__dirname, '../occupancy_detection/zones.json');
-    fs.writeFileSync(zonesPath, JSON.stringify(zones, null, 2));
-
     console.log(`Starting detection for lab ${labId} with zones:`, zones);
 
-    // Start the main.py detection script
-    detectionProcess = spawn('python', ['main.py'], {
+    // Start the main.py detection script supporting cross-platform OS paths
+    const isWindows = os.platform() === 'win32';
+    const venvPython = isWindows
+      ? path.join(__dirname, '../occupancy_detection/venv/Scripts/python.exe')
+      : path.join(__dirname, '../occupancy_detection/venv/bin/python');
+
+    // Fallback to global python if venv doesn't exist
+    const pythonExecutable = fs.existsSync(venvPython) ? venvPython : (isWindows ? 'python' : 'python3');
+
+    detectionProcess = spawn(pythonExecutable, ['main.py', labId.toString()], {
       cwd: path.join(__dirname, '../occupancy_detection'),
       stdio: 'pipe'
     });
@@ -418,17 +408,13 @@ app.post("/api/start-detection", async (req, res) => {
       const lines = data.toString().trim().split('\n');
       lines.forEach(line => {
         if (line.includes('Updated')) {
-          // Parse status updates like "Updated 1 to ON"
-          const match = line.match(/Updated (\d+) to (ON|OFF)/);
+          // Parse status updates like "Updated configBox1_1 to ON"
+          const match = line.match(/Updated (.+) to (ON|OFF)/);
           if (match) {
-            const fanId = match[1];
+            const zoneKey = match[1];
             const status = match[2] === 'ON';
-            // Set status for all zones with this fan ID
-            Object.keys(currentDetectionStatus).forEach(zoneKey => {
-              if (zoneKey.endsWith(`_${fanId}`)) {
-                currentDetectionStatus[zoneKey] = status;
-              }
-            });
+            // Set status for this specific zoneKey
+            currentDetectionStatus[zoneKey] = status;
           }
         }
       });
@@ -496,8 +482,9 @@ app.post("/api/labs/:labId/configure-zones", async (req, res) => {
     console.log(`Starting zone configuration for lab ${labId}`);
 
     // Run the zone configuration Python script
-    const pythonProcess = spawn('python', ['zoneConfig.py'], {
-      cwd: '../occupancy_detection',
+    const pythonExecutable = path.join(__dirname, '../occupancy_detection/venv/bin/python');
+    const pythonProcess = spawn(pythonExecutable, ['zoneConfig.py'], {
+      cwd: path.join(__dirname, '../occupancy_detection'),
       stdio: 'pipe'
     });
 
@@ -607,6 +594,9 @@ app.get("/api/analytics-summary/:labId", async (req, res) => {
   try {
     const { labId } = req.params;
 
+    // Use consistent data based on labId to ensure same results every time
+    const labHash = Math.abs(labId.split('').reduce((a, b) => a + b.charCodeAt(0), 0)) % 100;
+
     if (labId === 'test-lab') {
       return res.json([
         { metric: 'Total Energy Today', value: '12.5 kWh', change: '+2.3%' },
@@ -616,12 +606,17 @@ app.get("/api/analytics-summary/:labId", async (req, res) => {
       ]);
     }
 
-    // Mock data for real labs
+    // Consistent data for real labs based on labId hash
+    const baseEnergy = 10 + (labHash % 10);
+    const baseDevices = 3 + (labHash % 5);
+    const basePower = 400 + (labHash % 300);
+    const baseTemp = 20 + (labHash % 8);
+
     res.json([
-      { metric: 'Total Energy Today', value: '15.2 kWh', change: '+3.1%' },
-      { metric: 'Active Devices', value: '5', change: '+1' },
-      { metric: 'Peak Power', value: '620W', change: '+8.7%' },
-      { metric: 'Average Temperature', value: '23°C', change: '-1°C' }
+      { metric: 'Total Energy Today', value: `${baseEnergy.toFixed(1)} kWh`, change: `+${(labHash % 5 + 1)}.${labHash % 9}%` },
+      { metric: 'Active Devices', value: baseDevices.toString(), change: labHash % 2 === 0 ? '+1' : '0%' },
+      { metric: 'Peak Power', value: `${basePower}W`, change: labHash % 2 === 0 ? `+${labHash % 10}%` : `-${labHash % 10}%` },
+      { metric: 'Average Temperature', value: `${baseTemp}°C`, change: labHash % 2 === 0 ? `+${labHash % 3}°C` : `-${labHash % 2}°C` }
     ]);
   } catch (error) {
     console.error("Error fetching analytics summary:", error);
@@ -632,6 +627,7 @@ app.get("/api/analytics-summary/:labId", async (req, res) => {
 app.get("/api/weekly-energy-cost/:labId", async (req, res) => {
   try {
     const { labId } = req.params;
+    const labHash = Math.abs(labId.split('').reduce((a, b) => a + b.charCodeAt(0), 0)) % 100;
 
     if (labId === 'test-lab') {
       const data = [];
@@ -641,8 +637,8 @@ app.get("/api/weekly-energy-cost/:labId", async (req, res) => {
         date.setDate(date.getDate() - i);
         data.push({
           day: date.toLocaleDateString('en-US', { weekday: 'short' }),
-          energy: (Math.random() * 15 + 5).toFixed(2),
-          cost: (Math.random() * 2 + 0.5).toFixed(2)
+          energy: (5 + labHash % 10 + i).toFixed(2),
+          cost: (0.5 + labHash % 3 + i * 0.1).toFixed(2)
         });
       }
       return res.json(data);
@@ -655,8 +651,8 @@ app.get("/api/weekly-energy-cost/:labId", async (req, res) => {
       date.setDate(date.getDate() - i);
       data.push({
         day: date.toLocaleDateString('en-US', { weekday: 'short' }),
-        energy: (Math.random() * 20 + 8).toFixed(2),
-        cost: (Math.random() * 3 + 1).toFixed(2)
+        energy: (8 + labHash % 12 + i).toFixed(2),
+        cost: (1 + labHash % 4 + i * 0.2).toFixed(2)
       });
     }
     res.json(data);
@@ -669,14 +665,15 @@ app.get("/api/weekly-energy-cost/:labId", async (req, res) => {
 app.get("/api/six-month-consumption/:labId", async (req, res) => {
   try {
     const { labId } = req.params;
+    const labHash = Math.abs(labId.split('').reduce((a, b) => a + b.charCodeAt(0), 0)) % 100;
 
     if (labId === 'test-lab') {
       const data = [];
       const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
-      months.forEach(month => {
+      months.forEach((month, i) => {
         data.push({
           month: month,
-          consumption: (Math.random() * 300 + 200).toFixed(2)
+          consumption: (200 + labHash % 100 + i * 20).toFixed(2)
         });
       });
       return res.json(data);
@@ -684,10 +681,10 @@ app.get("/api/six-month-consumption/:labId", async (req, res) => {
 
     const data = [];
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
-    months.forEach(month => {
+    months.forEach((month, i) => {
       data.push({
         month: month,
-        consumption: (Math.random() * 400 + 250).toFixed(2)
+        consumption: (250 + labHash % 150 + i * 25).toFixed(2)
       });
     });
     res.json(data);
@@ -700,6 +697,7 @@ app.get("/api/six-month-consumption/:labId", async (req, res) => {
 app.get("/api/top-energy-consumers/:labId", async (req, res) => {
   try {
     const { labId } = req.params;
+    const labHash = Math.abs(labId.split('').reduce((a, b) => a + b.charCodeAt(0), 0)) % 100;
 
     if (labId === 'test-lab') {
       return res.json([
@@ -712,11 +710,11 @@ app.get("/api/top-energy-consumers/:labId", async (req, res) => {
     }
 
     res.json([
-      { device: 'Fan 1', consumption: '4.1 kWh', percentage: 28 },
-      { device: 'Fan 2', consumption: '3.5 kWh', percentage: 24 },
-      { device: 'Lighting', consumption: '2.8 kWh', percentage: 19 },
-      { device: 'AC Unit', consumption: '2.2 kWh', percentage: 15 },
-      { device: 'Equipment', consumption: '2.0 kWh', percentage: 14 }
+      { device: 'Fan 1', consumption: `${(3 + labHash % 2).toFixed(1)} kWh`, percentage: 25 + labHash % 5 },
+      { device: 'Fan 2', consumption: `${(2.5 + labHash % 2).toFixed(1)} kWh`, percentage: 20 + labHash % 6 },
+      { device: 'Lighting', consumption: `${(2 + labHash % 2).toFixed(1)} kWh`, percentage: 15 + labHash % 5 },
+      { device: 'AC Unit', consumption: `${(1.8 + labHash % 2).toFixed(1)} kWh`, percentage: 12 + labHash % 5 },
+      { device: 'Equipment', consumption: `${(2.2 + labHash % 2).toFixed(1)} kWh`, percentage: 18 + labHash % 6 }
     ]);
   } catch (error) {
     console.error("Error fetching top energy consumers:", error);
@@ -727,6 +725,8 @@ app.get("/api/top-energy-consumers/:labId", async (req, res) => {
 app.get("/api/peak-usage-hours/:labId", async (req, res) => {
   try {
     const { labId } = req.params;
+    const labHash = Math.abs(labId.split('').reduce((a, b) => a + b.charCodeAt(0), 0)) % 100;
+
     if (labId === 'test-lab') {
       return res.json([
         { hour: '8:00', usage: 450 },
@@ -739,12 +739,12 @@ app.get("/api/peak-usage-hours/:labId", async (req, res) => {
     }
 
     res.json([
-      { hour: '8:00', usage: 520 },
-      { hour: '10:00', usage: 750 },
-      { hour: '12:00', usage: 820 },
-      { hour: '14:00', usage: 780 },
-      { hour: '16:00', usage: 690 },
-      { hour: '18:00', usage: 410 }
+      { hour: '8:00', usage: 450 + labHash % 100 },
+      { hour: '10:00', usage: 650 + labHash % 150 },
+      { hour: '12:00', usage: 700 + labHash % 200 },
+      { hour: '14:00', usage: 650 + labHash % 180 },
+      { hour: '16:00', usage: 550 + labHash % 160 },
+      { hour: '18:00', usage: 300 + labHash % 120 }
     ]);
   } catch (error) {
     console.error("Error fetching peak usage hours:", error);
@@ -752,11 +752,62 @@ app.get("/api/peak-usage-hours/:labId", async (req, res) => {
   }
 });
 
+app.get("/api/energy-comparisons/:labId", async (req, res) => {
+  try {
+    const { labId } = req.params;
+    const labHash = Math.abs(labId.split('').reduce((a, b) => a + b.charCodeAt(0), 0)) % 100;
+
+    if (labId === 'test-lab') {
+      return res.json([
+        { period: 'Today', consumption: 12.5, cost: 2.50, comparison: -2.3 },
+        { period: 'Yesterday', consumption: 14.8, cost: 2.96, comparison: 0 },
+        { period: 'Last Week', consumption: 89.2, cost: 17.84, comparison: 5.1 },
+        { period: 'Last Month', consumption: 376.8, cost: 75.36, comparison: 8.7 }
+      ]);
+    }
+
+    // Consistent data for real labs based on labId hash
+    const baseConsumption = 10 + (labHash % 15);
+    const baseCost = baseConsumption * 0.2;
+
+    res.json([
+      {
+        period: 'Today',
+        consumption: parseFloat((baseConsumption + labHash % 5).toFixed(1)),
+        cost: parseFloat((baseCost + labHash % 2).toFixed(2)),
+        comparison: parseFloat((labHash % 10 - 5).toFixed(1))
+      },
+      {
+        period: 'Yesterday',
+        consumption: parseFloat((baseConsumption + labHash % 8).toFixed(1)),
+        cost: parseFloat((baseCost + labHash % 3).toFixed(2)),
+        comparison: 0
+      },
+      {
+        period: 'Last Week',
+        consumption: parseFloat((baseConsumption * 7 + labHash % 20).toFixed(1)),
+        cost: parseFloat((baseCost * 7 + labHash % 8).toFixed(2)),
+        comparison: parseFloat((labHash % 12 + 3).toFixed(1))
+      },
+      {
+        period: 'Last Month',
+        consumption: parseFloat((baseConsumption * 30 + labHash % 50).toFixed(1)),
+        cost: parseFloat((baseCost * 30 + labHash % 20).toFixed(2)),
+        comparison: parseFloat((labHash % 15 + 5).toFixed(1))
+      }
+    ]);
+  } catch (error) {
+    console.error("Error fetching energy comparisons:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
 app.get("/api/power-trend/:labId", async (req, res) => {
   try {
     const data = [];
+    const labHash = Math.abs(req.params.labId.split('').reduce((a, b) => a + b.charCodeAt(0), 0)) % 100;
     for (let i = 0; i < 12; i++) {
-      data.push({ minute: `${i * 5}m`, power: 500 + Math.random() * 100 });
+      data.push({ minute: `${i * 5}m`, power: 500 + labHash % 100 + i * 10 });
     }
     res.json(data);
   } catch {
