@@ -4,6 +4,15 @@ import platform
 
 import cv2
 
+try:
+    # Reduce noisy OpenCV backend warnings in stdout/stderr.
+    if hasattr(cv2, "utils") and hasattr(cv2.utils, "logging"):
+        cv2.utils.logging.setLogLevel(cv2.utils.logging.LOG_LEVEL_ERROR)
+    elif hasattr(cv2, "setLogLevel"):
+        cv2.setLogLevel(2)  # ERROR
+except Exception:
+    pass
+
 WINDOWS_BACKENDS = [
     ("dshow", cv2.CAP_DSHOW),
     ("msmf", cv2.CAP_MSMF),

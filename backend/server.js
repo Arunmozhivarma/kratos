@@ -92,66 +92,102 @@ function resolvePythonExecutable() {
   return isWindows ? "python" : "python3";
 }
 
+function parseCameraJson(output) {
+  const raw = (output || "").trim();
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(raw);
+  } catch {
+    // OpenCV logs can pollute stdout; recover by parsing the last JSON-like line.
+    const lines = raw.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+    for (let i = lines.length - 1; i >= 0; i -= 1) {
+      const line = lines[i];
+      if (line.startsWith("{") && line.endsWith("}")) {
+        try {
+          return JSON.parse(line);
+        } catch {
+          // keep scanning
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
 // ================= CAMERA DISCOVERY =================
 
 app.get("/api/cameras", async (req, res) => {
   try {
-    const pythonExecutable = resolvePythonExecutable();
-    const cameraProcess = spawn(pythonExecutable, ["list_cameras.py"], {
-      cwd: OCCUPANCY_DIR,
-      stdio: "pipe"
-    });
+    const isWindows = os.platform() === "win32";
+    const candidates = [resolvePythonExecutable(), isWindows ? "python" : "python3"];
 
-    let output = "";
-    let errorOutput = "";
-    let hasResponded = false;
+    const runDiscovery = (pythonExecutable) => new Promise((resolve) => {
+      const cameraProcess = spawn(pythonExecutable, ["list_cameras.py"], {
+        cwd: OCCUPANCY_DIR,
+        stdio: "pipe"
+      });
 
-    cameraProcess.stdout.on("data", (data) => {
-      output += data.toString();
-    });
+      let output = "";
+      let errorOutput = "";
 
-    cameraProcess.stderr.on("data", (data) => {
-      errorOutput += data.toString();
-    });
+      cameraProcess.stdout.on("data", (data) => {
+        output += data.toString();
+      });
 
-    cameraProcess.on("close", (code) => {
-      if (hasResponded) {
-        return;
-      }
+      cameraProcess.stderr.on("data", (data) => {
+        errorOutput += data.toString();
+      });
 
-      if (code !== 0) {
-        hasResponded = true;
-        console.error("Camera discovery failed:", errorOutput || `Exit code ${code}`);
-        return res.status(500).json({ message: "Failed to detect cameras" });
-      }
-
-      try {
-        const parsed = JSON.parse(output);
-        const cameras = Array.isArray(parsed.cameras) ? parsed.cameras : [];
-        const preferredIndex = Number.isInteger(parsed.preferred_index)
-          ? parsed.preferred_index
-          : (cameras[0]?.index ?? 0);
-
-        hasResponded = true;
-        return res.json({
-          cameras,
-          preferredIndex
+      cameraProcess.on("close", (code) => {
+        resolve({
+          ok: code === 0,
+          pythonExecutable,
+          output,
+          errorOutput,
         });
-      } catch (parseError) {
-        hasResponded = true;
-        console.error("Failed to parse camera discovery output:", parseError);
-        return res.status(500).json({ message: "Invalid camera discovery output" });
-      }
+      });
+
+      cameraProcess.on("error", (error) => {
+        resolve({
+          ok: false,
+          pythonExecutable,
+          output,
+          errorOutput: `${errorOutput}\n${error.message}`.trim(),
+        });
+      });
     });
 
-    cameraProcess.on("error", (error) => {
-      if (hasResponded) {
-        return;
+    let lastFailure = null;
+    for (const pythonExecutable of [...new Set(candidates)]) {
+      const result = await runDiscovery(pythonExecutable);
+      if (!result.ok) {
+        lastFailure = result;
+        continue;
       }
-      hasResponded = true;
-      console.error("Failed to run camera discovery:", error);
-      res.status(500).json({ message: "Camera discovery process error" });
-    });
+
+      const parsed = parseCameraJson(result.output);
+      if (!parsed) {
+        lastFailure = result;
+        continue;
+      }
+
+      const cameras = Array.isArray(parsed.cameras) ? parsed.cameras : [];
+      const preferredIndex = Number.isInteger(parsed.preferred_index)
+        ? parsed.preferred_index
+        : (cameras[0]?.index ?? 0);
+
+      return res.json({
+        cameras,
+        preferredIndex
+      });
+    }
+
+    console.error("Camera discovery failed:", lastFailure?.errorOutput || "Unknown error");
+    return res.status(500).json({ message: "Failed to detect cameras" });
   } catch (error) {
     console.error("Error getting cameras:", error);
     res.status(500).json({ message: "Server error" });
