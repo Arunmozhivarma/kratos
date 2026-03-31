@@ -171,7 +171,7 @@ export default function CameraLivePage() {
 
     pollIntervalRef.current = setInterval(async () => {
       try {
-        const response = await fetch('http://localhost:5000/api/detection-status');
+        const response = await fetch(`http://localhost:5000/api/detection-status?labId=${labId}`);
         if (response.ok) {
           const status = await response.json();
           const serialized = JSON.stringify(status);

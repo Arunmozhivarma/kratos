@@ -18,7 +18,7 @@ const ENABLE_DB_TO_ESP32_SYNC = process.env.ENABLE_DB_TO_ESP32_SYNC === "true";
 let previousDeviceStates = new Map();
 
 // ESP32 IP Configuration
-const ESP32_IP = "http://10.70.103.109";
+const ESP32_IP = "http://192.168.0.114"; 
 
 // Function to trigger ESP32
 async function triggerESP32(deviceId, state) {
@@ -606,7 +606,22 @@ app.post("/api/stop-detection", async (req, res) => {
 
 app.get("/api/detection-status", async (req, res) => {
   try {
-    res.json(currentDetectionStatus);
+    const { labId } = req.query;
+
+    const result = await pool.query(
+      `SELECT device_id, device_status FROM ${DB_SCHEMA}.devices WHERE lab_id = $1`,
+      [labId]
+    );
+
+    const status = {};
+
+    result.rows.forEach(row => {
+      const zoneKey = `configBox1_${row.device_id}`; // match frontend
+      status[zoneKey] = row.device_status;
+    });
+
+    res.json(status);
+
   } catch (error) {
     console.error("Error getting detection status:", error);
     res.status(500).json({ message: "Server error" });
@@ -734,7 +749,6 @@ app.post("/api/esp32/control", async (req, res) => {
     res.status(200).json({
       message: "ESP32 command sent",
       device_id: normalizedDeviceId,
-      lab_id,
       status: deviceStatus
     });
   } catch (error) {
