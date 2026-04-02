@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   clearLabSelection,
   setSelectedDepartment as saveSelectedDepartment,
+  setSelectedUserProfile,
 } from '../data/labs';
 
 export default function LoginPage() {
@@ -86,6 +87,12 @@ export default function LoginPage() {
 
       const departmentName = getSelectedDepartmentName();
       saveSelectedDepartment(departmentName, selectedDepartmentId);
+      setSelectedUserProfile({
+        username: data.username,
+        email: data.email,
+        identifier: data.email ?? signupEmail,
+        lastLoginAt: new Date().toISOString(),
+      });
       clearLabSelection();
 
       navigate('/lab-select');
@@ -130,8 +137,14 @@ export default function LoginPage() {
 
       const departmentName = getSelectedDepartmentName();
       saveSelectedDepartment(departmentName, selectedDepartmentId);
-      clearLabSelection();
+      setSelectedUserProfile({
+        username: data.username,
+        email: data.email,
+        identifier: data.email ?? loginIdentifier,
+        lastLoginAt: new Date().toISOString(),
+      });
 
+      clearLabSelection();
       navigate('/lab-select');
     } catch (err) {
       console.error('Login error:', err);

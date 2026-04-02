@@ -5,6 +5,7 @@ import {
   getSelectedDepartmentId,
   setSelectedLab,
 } from '../data/labs';
+import { getLandingPageRoute } from '../data/settings';
 
 export default function LabSelectionPage() {
   const navigate = useNavigate();
@@ -79,7 +80,7 @@ export default function LabSelectionPage() {
     }
 
     // Navigate after confirming storage
-    navigate('/app/dashboard');
+    navigate(getLandingPageRoute());
   };
 
   const handleCameraClick = (lab) => {
