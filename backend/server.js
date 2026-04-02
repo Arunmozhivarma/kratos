@@ -12,23 +12,21 @@ require("dotenv").config();
 const app = express();
 const DB_SCHEMA = (process.env.DB_SCHEMA || "public").replace(/[^a-zA-Z0-9_]/g, "");
 const OCCUPANCY_DIR = path.join(__dirname, "../occupancy_detection");
+const ENABLE_DB_TO_ESP32_SYNC = process.env.ENABLE_DB_TO_ESP32_SYNC === "true";
 
 // Store previous device states to detect changes
 let previousDeviceStates = new Map();
 
 // ESP32 IP Configuration
-const ESP32_IP = "http://10.20.3.109";
+const ESP32_IP = "http://192.168.0.114"; 
 
 // Function to trigger ESP32
 async function triggerESP32(deviceId, state) {
   try {
-    if (state) {
-      console.log(`Turning fan ${deviceId} OFF (ESP32 logic inverted)`);
-      await axios.get(`${ESP32_IP}/off`, { timeout: 5000 });
-    } else {
-      console.log(`Turning fan ${deviceId} ON (ESP32 logic inverted)`);
-      await axios.get(`${ESP32_IP}/on`, { timeout: 5000 });
-    }
+    const action = state ? "on" : "off";
+    const endpoint = `${ESP32_IP}/${action}${deviceId}`;
+    console.log(`Sending ESP32 command: ${endpoint}`);
+    await axios.get(endpoint, { timeout: 5000 });
   } catch (err) {
     console.error(`ESP32 error:`, err.message);
   }
@@ -55,7 +53,12 @@ async function pollDatabaseForChanges() {
   }
 }
 
-setInterval(pollDatabaseForChanges, 2000);
+if (ENABLE_DB_TO_ESP32_SYNC) {
+  console.log("DB->ESP32 polling is enabled");
+  setInterval(pollDatabaseForChanges, 2000);
+} else {
+  console.log("DB->ESP32 polling is disabled (zone-detection controls ESP32 directly)");
+}
 
 // Init states
 async function initializeDeviceStates() {
@@ -667,7 +670,22 @@ app.post("/api/stop-detection", async (req, res) => {
 
 app.get("/api/detection-status", async (req, res) => {
   try {
-    res.json(currentDetectionStatus);
+    const { labId } = req.query;
+
+    const result = await pool.query(
+      `SELECT device_id, device_status FROM ${DB_SCHEMA}.devices WHERE lab_id = $1`,
+      [labId]
+    );
+
+    const status = {};
+
+    result.rows.forEach(row => {
+      const zoneKey = `configBox1_${row.device_id}`; // match frontend
+      status[zoneKey] = row.device_status;
+    });
+
+    res.json(status);
+
   } catch (error) {
     console.error("Error getting detection status:", error);
     res.status(500).json({ message: "Server error" });
@@ -771,21 +789,70 @@ app.get("/api/energy-consumption/:labId", async (req, res) => {
 
 // ================= DEVICE UPDATE =================
 
+app.post("/api/esp32/control", async (req, res) => {
+  try {
+    const { device_id, status } = req.body;
+    const resolvedDeviceId = device_id;
+
+    if (!resolvedDeviceId || status === undefined) {
+      return res.status(400).json({
+        message: "device_id and status required"
+      });
+    }
+
+    const normalizedDeviceId = String(resolvedDeviceId);
+    if (!["1", "2"].includes(normalizedDeviceId)) {
+      return res.status(400).json({
+        message: "device_id must be 1 or 2 in simulation mode"
+      });
+    }
+
+    const deviceStatus = status === "ON" || status === true;
+    await triggerESP32(normalizedDeviceId, deviceStatus);
+
+    res.status(200).json({
+      message: "ESP32 command sent",
+      device_id: normalizedDeviceId,
+      status: deviceStatus
+    });
+  } catch (error) {
+    console.error("Error sending ESP32 command:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
 app.post("/api/devices/update", async (req, res) => {
   try {
-    const state = req.body.status === "ON";
+    const { device_id, lab_id, status, current } = req.body;
+
+    if (!device_id || !lab_id || status === undefined || current === undefined) {
+      return res.status(400).json({
+        message: "device_id, lab_id, status, current required"
+      });
+    }
+
+    console.log("Received device update:", { device_id, lab_id, status, current });
+    const deviceStatus = status === "ON";
 
     const result = await pool.query(
       `UPDATE ${DB_SCHEMA}.devices
-       SET device_status=$1
-       WHERE device_id=$2 AND lab_id=$3 RETURNING *`,
-      [state, req.body.fan_id, req.body.lab_id]
+       SET device_status = $1,
+           sensor_reading = $2
+       WHERE device_id = $3 AND lab_id = $4`,
+      [deviceStatus, current, device_id, lab_id]
     );
 
-    res.json(result.rows[0]);
+    if (result.rowCount === 0) {
+      return res.status(404).json({
+        message: "Device not found for this lab"
+      });
+    }
+
+    res.status(200).json({ message: "Updated successfully" });
+
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Update error" });
+    console.error("Error updating device:", error);
+    res.status(500).json({ message: "Server error" });
   }
 });
 
