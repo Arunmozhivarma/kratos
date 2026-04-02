@@ -11,15 +11,25 @@ export default function CameraLivePage() {
   const labId = labInfo.labId || getSelectedLabId();
   const labName = labInfo.labName || getSelectedLab();
 
-  const videoRef = useRef(null);
-  const canvasRef = useRef(null);
-  const [stream, setStream] = useState(null);
+  const pollIntervalRef = useRef(null);
+  const liveImageRef = useRef(null);
+  const frameLoopActiveRef = useRef(false);
+  const hasFrameRef = useRef(false);
+  const runningRef = useRef(false);
+  const lastStatusRef = useRef('{}');
   const [zones, setZones] = useState({});
   const [loading, setLoading] = useState(true);
+  const [cameraLoading, setCameraLoading] = useState(true);
+  const [cameras, setCameras] = useState([]);
+  const [selectedCameraIndex, setSelectedCameraIndex] = useState(null);
   const [error, setError] = useState('');
   const [detectionStatus, setDetectionStatus] = useState({});
   const [isDetectionRunning, setIsDetectionRunning] = useState(false);
-  const [streamKey, setStreamKey] = useState(Date.now());
+  const [hasFrame, setHasFrame] = useState(false);
+
+  useEffect(() => {
+    runningRef.current = isDetectionRunning;
+  }, [isDetectionRunning]);
 
   useEffect(() => {
     if (!labId) {
@@ -28,15 +38,21 @@ export default function CameraLivePage() {
     }
 
     loadZones();
-    // Python handles the camera natively now
+    loadCameras();
 
     return () => {
-      // Stop detection when leaving
-      if (isDetectionRunning) {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+
+      stopFrameLoop();
+
+      if (runningRef.current) {
         stopDetection();
       }
     };
-  }, [labId]);
+  }, [labId, navigate]);
 
   const loadZones = async () => {
     try {
@@ -60,43 +76,80 @@ export default function CameraLivePage() {
     }
   };
 
-  const startCamera = async () => {
-    // Camera is now completely processed remotely by Python Flask stream.
-  };
+  const loadCameras = async () => {
+    try {
+      setCameraLoading(true);
+      const response = await fetch('http://localhost:5000/api/cameras');
+      if (!response.ok) {
+        throw new Error('Failed to get camera list');
+      }
 
-  const drawZones = () => {
-    // Zones are directly rendered natively onto the visual video frame by Python (cv2).
+      const data = await response.json();
+      const cameraList = Array.isArray(data.cameras) ? data.cameras : [];
+      setCameras(cameraList);
+
+      if (cameraList.length === 0) {
+        setSelectedCameraIndex(null);
+        setError('No camera detected. Please check camera connection and refresh.');
+        return;
+      }
+
+      const preferredIndex = Number.isInteger(data.preferredIndex)
+        ? data.preferredIndex
+        : cameraList[0].index;
+      setSelectedCameraIndex(preferredIndex);
+      setError('');
+    } catch (err) {
+      console.error('Error loading cameras:', err);
+      setCameras([]);
+      setSelectedCameraIndex(null);
+      setError('Unable to detect connected cameras.');
+    } finally {
+      setCameraLoading(false);
+    }
   };
 
   const startDetection = async () => {
+    if (selectedCameraIndex === null || selectedCameraIndex === undefined) {
+      setError('Please select a valid camera before starting detection.');
+      return;
+    }
+
     try {
-      setIsDetectionRunning(true);
       setError('');
 
       // Start the Python detection script
       const response = await fetch('http://localhost:5000/api/start-detection', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ labId, zones })
+        body: JSON.stringify({ labId, zones, cameraIndex: selectedCameraIndex })
       });
 
       if (response.ok) {
-        // Start polling for detection status
+        setIsDetectionRunning(true);
         startStatusPolling();
+        startFrameLoop();
       } else {
         const data = await response.json();
         setError(`Failed to start detection: ${data.message}`);
-        setIsDetectionRunning(false);
       }
     } catch (err) {
       setError(`Error starting detection: ${err.message}`);
-      setIsDetectionRunning(false);
     }
   };
 
   const stopDetection = async () => {
     try {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+
+      stopFrameLoop();
       setIsDetectionRunning(false);
+      setDetectionStatus({});
+      lastStatusRef.current = '{}';
+      setError('');
 
       const response = await fetch('http://localhost:5000/api/stop-detection', {
         method: 'POST',
@@ -112,26 +165,87 @@ export default function CameraLivePage() {
   };
 
   const startStatusPolling = () => {
-    const pollInterval = setInterval(async () => {
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+    }
+
+    pollIntervalRef.current = setInterval(async () => {
       try {
-        const response = await fetch('http://localhost:5000/api/detection-status');
+        const response = await fetch(`http://localhost:5000/api/detection-status?labId=${labId}`);
         if (response.ok) {
           const status = await response.json();
-          setDetectionStatus(status);
-          drawZones();
+          const serialized = JSON.stringify(status);
+          if (serialized !== lastStatusRef.current) {
+            lastStatusRef.current = serialized;
+            setDetectionStatus(status);
+          }
         }
       } catch (err) {
         console.error('Error polling status:', err);
       }
     }, 1000); // Poll every second
-
-    // Store interval ID for cleanup
-    return () => clearInterval(pollInterval);
   };
 
-  useEffect(() => {
-    drawZones();
-  }, [zones, detectionStatus]);
+  const stopFrameLoop = () => {
+    frameLoopActiveRef.current = false;
+
+    if (liveImageRef.current) {
+      liveImageRef.current.onload = null;
+      liveImageRef.current.onerror = null;
+      liveImageRef.current.src = '';
+    }
+
+    hasFrameRef.current = false;
+    setHasFrame(false);
+  };
+
+  const startFrameLoop = () => {
+    stopFrameLoop();
+    frameLoopActiveRef.current = true;
+    const pullFrame = () => {
+      if (!frameLoopActiveRef.current) {
+        return;
+      }
+
+      const img = liveImageRef.current;
+      if (!img) {
+        setTimeout(pullFrame, 50);
+        return;
+      }
+
+      img.onload = () => {
+        if (!frameLoopActiveRef.current) {
+          return;
+        }
+
+        if (!hasFrameRef.current) {
+          hasFrameRef.current = true;
+          setHasFrame(true);
+        }
+
+        if (error) {
+          setError('');
+        }
+
+        setTimeout(pullFrame, 0);
+      };
+
+      img.onerror = () => {
+        if (!frameLoopActiveRef.current) {
+          return;
+        }
+
+        setError('Waiting for camera stream connection... (this may take a few seconds)');
+        setTimeout(pullFrame, 80);
+      };
+
+      img.src = `http://localhost:5001/latest_frame.jpg?t=${Date.now()}`;
+    };
+
+    hasFrameRef.current = false;
+    setHasFrame(false);
+    pullFrame();
+  };
 
   const handleBackToLabs = () => {
     if (isDetectionRunning) {
@@ -159,14 +273,35 @@ export default function CameraLivePage() {
                     {isDetectionRunning ? 'Running' : 'Stopped'}
                   </span>
                 </p>
+                <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
+                  Camera:
+                  <span className="ml-2 font-semibold">
+                    {selectedCameraIndex === null ? 'Not selected' : `Index ${selectedCameraIndex}`}
+                  </span>
+                </p>
               </div>
-              <div className="flex gap-3">
+              <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
+                <select
+                  className="rounded-xl border border-gray-300 px-3 py-2 text-sm text-gray-700 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
+                  value={selectedCameraIndex ?? ''}
+                  onChange={(e) => setSelectedCameraIndex(Number(e.target.value))}
+                  disabled={cameraLoading || isDetectionRunning || cameras.length === 0}
+                >
+                  {cameraLoading && <option value="">Detecting cameras...</option>}
+                  {!cameraLoading && cameras.length === 0 && <option value="">No cameras found</option>}
+                  {!cameraLoading && cameras.map((camera) => (
+                    <option key={camera.index} value={camera.index}>
+                      {camera.label} (index {camera.index})
+                    </option>
+                  ))}
+                </select>
                 <button
                   onClick={isDetectionRunning ? stopDetection : startDetection}
                   className={`rounded-xl px-4 py-2 font-medium text-white transition ${isDetectionRunning
                     ? 'bg-rose-600 hover:bg-rose-700'
-                    : 'bg-emerald-600 hover:bg-emerald-700'
+                    : 'bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300 disabled:cursor-not-allowed'
                     }`}
+                  disabled={!isDetectionRunning && (cameraLoading || selectedCameraIndex === null)}
                 >
                   {isDetectionRunning ? 'Stop Detection' : 'Start Detection'}
                 </button>
@@ -201,23 +336,25 @@ export default function CameraLivePage() {
                 <h2 className="text-xl font-semibold text-primary mb-4">Live Camera Feed</h2>
                 <div className="relative bg-black rounded-lg overflow-hidden min-h-[400px] flex items-center justify-center">
                   {isDetectionRunning ? (
-                    <img 
-                      src={`http://localhost:5001/video_feed?t=${streamKey}`} 
-                      alt="Camera Live Stream"
-                      className="w-full h-auto object-contain"
-                      style={{ maxHeight: '600px' }}
-                      onError={(e) => {
-                        e.target.style.display = 'none';
-                        setError('Waiting for camera stream connection... (this may take a few seconds)');
-                        setTimeout(() => {
-                          setStreamKey(Date.now());
-                        }, 2000);
-                      }}
-                      onLoad={(e) => {
-                        e.target.style.display = 'block';
-                        setError(''); // Clear error when connected
-                      }}
-                    />
+                    hasFrame ? (
+                      <img 
+                        ref={liveImageRef}
+                        alt="Camera Live Stream"
+                        className="w-full h-auto object-contain"
+                        style={{ maxHeight: '600px' }}
+                      />
+                    ) : (
+                      <>
+                        <img
+                          ref={liveImageRef}
+                          alt="Camera Live Stream"
+                          className="hidden"
+                        />
+                        <div className="text-gray-400 text-center py-20">
+                          <p>Connecting to camera stream...</p>
+                        </div>
+                      </>
+                    )
                   ) : (
                     <div className="text-gray-400 text-center py-20">
                       <p>Camera feed will appear here when detection is started.</p>

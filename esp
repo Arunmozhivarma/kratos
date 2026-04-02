@@ -1,0 +1,149 @@
+#include <WiFi.h>
+#include <HTTPClient.h>
+
+const char* ssid = "ACTFIBERNET";
+const char* password = "act12345";
+
+WiFiServer server(80);
+
+int LAB_ID = 33;
+
+int relayPin1 = 26;
+int relayPin2 = 27;
+
+int sensorPin1 = 34;
+int sensorPin2 = 35;
+
+float baseline1 = 0;
+float baseline2 = 0;
+
+void setup() {
+  Serial.begin(115200);
+
+  pinMode(relayPin1, OUTPUT);
+  pinMode(relayPin2, OUTPUT);
+
+  digitalWrite(relayPin1, LOW);
+  digitalWrite(relayPin2, LOW);
+  delay(2000); // stabilize
+
+  for (int i = 0; i < 200; i++) {
+    baseline1 += analogRead(sensorPin1);
+    baseline2 += analogRead(sensorPin2);
+    delay(5);
+  }
+
+  baseline1 /= 200;
+  baseline2 /= 200;
+
+  Serial.println(baseline1);
+  Serial.println(baseline2);
+
+  WiFi.begin(ssid, password);
+
+  Serial.print("Connecting");
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println("\nConnected to WiFi");
+  Serial.println(WiFi.localIP());
+
+  server.begin();
+}
+
+void sendDataToBackend(float current, String state, int deviceId) {
+  if (WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+
+    String serverUrl = "http://192.168.0.113:5000/api/devices/update";
+
+    http.begin(serverUrl);
+    http.addHeader("Content-Type", "application/json");
+
+    String jsonData = "{";
+    jsonData += "\"device_id\":" + String(deviceId) + ",";
+    jsonData += "\"lab_id\":" + String(LAB_ID) + ",";
+    jsonData += "\"status\":\"" + state + "\",";
+    jsonData += "\"current\":" + String(current);
+    jsonData += "}";
+
+    int httpResponseCode = http.POST(jsonData);
+
+    Serial.print("Device ");
+    Serial.print(deviceId);
+    Serial.print(" HTTP Code: ");
+    Serial.println(httpResponseCode);
+
+    http.end();
+  }
+}
+
+float readCurrentDC(int sensorPin, float baseline) {
+  int samples = 50;
+  float sum = 0;
+
+  for (int i = 0; i < samples; i++) {
+    sum += analogRead(sensorPin);
+    delay(2);
+  }
+
+  float avg = sum / samples;
+
+  float voltage = avg * (3.3 / 4095.0);
+  float baselineVoltage = baseline * (3.3 / 4095.0);
+
+  float current = (voltage - baselineVoltage) / 0.185;
+
+  return current;
+}
+
+void handleDevice(int relayPin, int sensorPin, String state, int deviceId, float baseline) {
+
+  digitalWrite(relayPin, state == "ON" ? HIGH : LOW);
+
+  float current = readCurrentDC(sensorPin, baseline);
+
+  if (abs(current) < 0.05) current = 0;
+
+  Serial.print("Device ");
+  Serial.print(deviceId);
+  Serial.print(" Sensor: ");
+  Serial.println(current);
+
+  sendDataToBackend(current, state, deviceId);
+}
+
+void loop() {
+  WiFiClient client = server.available();
+
+  if (client) {
+    String request = client.readStringUntil('\r');
+    client.flush();
+
+    // Device 1
+    if (request.indexOf("/on1") != -1) {
+      handleDevice(relayPin1, sensorPin1, "ON", 1, baseline1);
+    }
+    if (request.indexOf("/off1") != -1) {
+      handleDevice(relayPin1, sensorPin1, "OFF", 1, baseline1);
+    }
+
+    // Device 2
+    if (request.indexOf("/on2") != -1) {
+      handleDevice(relayPin2, sensorPin2, "ON", 2, baseline2);
+    }
+    if (request.indexOf("/off2") != -1) {
+      handleDevice(relayPin2, sensorPin2, "OFF", 2, baseline2);
+    }
+
+    client.println("HTTP/1.1 200 OK");
+    client.println("Content-type:text/html");
+    client.println("");
+    client.println("Devices Controlled");
+
+    client.stop();
+  }
+}

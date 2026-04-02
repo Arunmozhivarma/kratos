@@ -12,13 +12,14 @@ require("dotenv").config();
 
 const app = express();
 const DB_SCHEMA = (process.env.DB_SCHEMA || "public").replace(/[^a-zA-Z0-9_]/g, "");
+const OCCUPANCY_DIR = path.join(__dirname, "../occupancy_detection");
+const ENABLE_DB_TO_ESP32_SYNC = process.env.ENABLE_DB_TO_ESP32_SYNC === "true";
 
 // Store previous device states to detect changes
 let previousDeviceStates = new Map();
 
 // ESP32 IP Configuration
-const ESP32_IP = "http://10.20.3.109";
-const ENABLE_ESP32 = process.env.ENABLE_ESP32 === 'true';
+const ESP32_IP = "http://192.168.0.114"; 
 
 // Function to trigger ESP32
 async function triggerESP32(deviceId, state) {
@@ -27,13 +28,10 @@ async function triggerESP32(deviceId, state) {
   }
 
   try {
-    if (state) {
-      console.log(`Turning fan ${deviceId} OFF (ESP32 logic inverted)`);
-      await axios.get(`${ESP32_IP}/off`, { timeout: 5000 });
-    } else {
-      console.log(`Turning fan ${deviceId} ON (ESP32 logic inverted)`);
-      await axios.get(`${ESP32_IP}/on`, { timeout: 5000 });
-    }
+    const action = state ? "on" : "off";
+    const endpoint = `${ESP32_IP}/${action}${deviceId}`;
+    console.log(`Sending ESP32 command: ${endpoint}`);
+    await axios.get(endpoint, { timeout: 5000 });
   } catch (err) {
     console.error(`ESP32 error:`, err.message);
   }
@@ -64,12 +62,11 @@ async function pollDatabaseForChanges() {
   }
 }
 
-// Only start polling if ESP32 is enabled
-if (ENABLE_ESP32) {
+if (ENABLE_DB_TO_ESP32_SYNC) {
+  console.log("DB->ESP32 polling is enabled");
   setInterval(pollDatabaseForChanges, 2000);
-  console.log("🤖 ESP32 polling enabled (every 2 seconds)");
 } else {
-  console.log("🔌 ESP32 polling disabled");
+  console.log("DB->ESP32 polling is disabled (zone-detection controls ESP32 directly)");
 }
 
 // Init states
@@ -96,6 +93,121 @@ app.use(express.json());
 
 app.get("/", (req, res) => {
   res.send("KRATOS backend is running");
+});
+
+function resolvePythonExecutable() {
+  const isWindows = os.platform() === "win32";
+  const venvPython = isWindows
+    ? path.join(OCCUPANCY_DIR, "venv/Scripts/python.exe")
+    : path.join(OCCUPANCY_DIR, "venv/bin/python");
+
+  if (fs.existsSync(venvPython)) {
+    return venvPython;
+  }
+
+  return isWindows ? "python" : "python3";
+}
+
+function parseCameraJson(output) {
+  const raw = (output || "").trim();
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(raw);
+  } catch {
+    // OpenCV logs can pollute stdout; recover by parsing the last JSON-like line.
+    const lines = raw.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+    for (let i = lines.length - 1; i >= 0; i -= 1) {
+      const line = lines[i];
+      if (line.startsWith("{") && line.endsWith("}")) {
+        try {
+          return JSON.parse(line);
+        } catch {
+          // keep scanning
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+// ================= CAMERA DISCOVERY =================
+
+app.get("/api/cameras", async (req, res) => {
+  try {
+    const isWindows = os.platform() === "win32";
+    const candidates = [resolvePythonExecutable(), isWindows ? "python" : "python3"];
+
+    const runDiscovery = (pythonExecutable) => new Promise((resolve) => {
+      const cameraProcess = spawn(pythonExecutable, ["list_cameras.py"], {
+        cwd: OCCUPANCY_DIR,
+        stdio: "pipe"
+      });
+
+      let output = "";
+      let errorOutput = "";
+
+      cameraProcess.stdout.on("data", (data) => {
+        output += data.toString();
+      });
+
+      cameraProcess.stderr.on("data", (data) => {
+        errorOutput += data.toString();
+      });
+
+      cameraProcess.on("close", (code) => {
+        resolve({
+          ok: code === 0,
+          pythonExecutable,
+          output,
+          errorOutput,
+        });
+      });
+
+      cameraProcess.on("error", (error) => {
+        resolve({
+          ok: false,
+          pythonExecutable,
+          output,
+          errorOutput: `${errorOutput}\n${error.message}`.trim(),
+        });
+      });
+    });
+
+    let lastFailure = null;
+    for (const pythonExecutable of [...new Set(candidates)]) {
+      const result = await runDiscovery(pythonExecutable);
+      if (!result.ok) {
+        lastFailure = result;
+        continue;
+      }
+
+      const parsed = parseCameraJson(result.output);
+      if (!parsed) {
+        lastFailure = result;
+        continue;
+      }
+
+      const cameras = Array.isArray(parsed.cameras) ? parsed.cameras : [];
+      const preferredIndex = Number.isInteger(parsed.preferred_index)
+        ? parsed.preferred_index
+        : (cameras[0]?.index ?? 0);
+
+      return res.json({
+        cameras,
+        preferredIndex
+      });
+    }
+
+    console.error("Camera discovery failed:", lastFailure?.errorOutput || "Unknown error");
+    return res.status(500).json({ message: "Failed to detect cameras" });
+  } catch (error) {
+    console.error("Error getting cameras:", error);
+    res.status(500).json({ message: "Server error" });
+  }
 });
 
 // ================= BASIC APIs =================
@@ -287,19 +399,63 @@ app.post("/api/login", async (req, res) => {
   }
 });
 
+app.post("/api/change-password", async (req, res) => {
+  try {
+    const { identifier, department_id, currentPassword, newPassword } = req.body;
+
+    if (!identifier || !department_id || !currentPassword || !newPassword) {
+      return res.status(400).json({ message: "identifier, department_id, currentPassword, and newPassword are required" });
+    }
+
+    const result = await pool.query(
+      `SELECT * FROM ${DB_SCHEMA}.users
+       WHERE (username=$1 OR email=$1)
+       AND department_id=$2`,
+      [identifier, department_id]
+    );
+
+    if (!result.rows.length) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const user = result.rows[0];
+    const match = await bcrypt.compare(currentPassword, user.password_hash);
+
+    if (!match) {
+      return res.status(401).json({ message: "Current password is incorrect" });
+    }
+
+    const newHash = await bcrypt.hash(newPassword, 10);
+
+    await pool.query(
+      `UPDATE ${DB_SCHEMA}.users
+       SET password_hash=$1
+       WHERE (username=$2 OR email=$2)
+       AND department_id=$3`,
+      [newHash, identifier, department_id]
+    );
+
+    res.json({ message: "Password updated successfully" });
+  } catch (error) {
+    console.error("Change password error:", error);
+    res.status(500).json({ message: "Change password error" });
+  }
+});
+
 // ================= DEVICES =================
 
 app.post("/api/devices", async (req, res) => {
   try {
     const result = await pool.query(
-      `INSERT INTO ${DB_SCHEMA}.devices (device_id, device_status)
-       VALUES ($1,false)
-       ON CONFLICT DO NOTHING RETURNING *`,
-      [req.body.device_id]
+      `INSERT INTO ${DB_SCHEMA}.devices (device_id, device_status, lab_id)
+       VALUES ($1,false,$2)
+       ON CONFLICT (lab_id, device_id) DO NOTHING RETURNING *`,
+      [req.body.device_id, req.body.lab_id]
     );
 
-    if (!result.rows.length)
+    if (!result.rows.length) {
       return res.status(409).json({ message: "Exists" });
+    }
 
     res.json(result.rows[0]);
   } catch (error) {
@@ -354,6 +510,9 @@ app.get("/api/zones", async (req, res) => {
 });
 
 app.post("/api/zones", async (req, res) => {
+  const client = await pool.connect();
+  let transactionStarted = false;
+
   try {
     const { labId, zones } = req.body;
 
@@ -365,26 +524,62 @@ app.post("/api/zones", async (req, res) => {
       return res.json({ message: "Test lab zones are not persisted", labId, zonesCount: 0, zones: [] });
     }
 
+    const zoneEntries = Object.entries(zones || {});
+    const configuredDeviceIds = [...new Set(
+      zoneEntries
+        .map(([zoneKey]) => {
+          const parts = zoneKey.split('_');
+          return Number.parseInt(parts[parts.length - 1], 10);
+        })
+        .filter((deviceId) => Number.isInteger(deviceId))
+    )];
+
+    await client.query('BEGIN');
+    transactionStarted = true;
+
     // Clear existing zones for this lab
-    await pool.query(
+    await client.query(
       `DELETE FROM ${DB_SCHEMA}.zones WHERE lab_id = $1`,
       [labId]
     );
 
     // Insert new zones with unique configuration boxes
-    for (const [zoneKey, coordinates] of Object.entries(zones)) {
+    for (const [zoneKey, coordinates] of zoneEntries) {
       // Parse zoneKey to extract zone_name and device_id
       // Format: "configBox1_device1" or similar
       const parts = zoneKey.split('_');
-      const device_id = parts[parts.length - 1]; // Last part is device_id
+      const device_id = Number.parseInt(parts[parts.length - 1], 10); // Last part is the physical device id
       const zone_name = parts.slice(0, -1).join('_'); // Everything except last part
 
-      await pool.query(
+      if (!Number.isInteger(device_id)) {
+        throw new Error(`Invalid device id in zone key: ${zoneKey}`);
+      }
+
+      await client.query(
         `INSERT INTO ${DB_SCHEMA}.zones (lab_id, device_id, zone_name, zone_coordinates)
          VALUES ($1, $2, $3, $4)`,
         [labId, device_id, zone_name, JSON.stringify(coordinates)]
       );
     }
+
+    await client.query(
+      `DELETE FROM ${DB_SCHEMA}.devices
+       WHERE lab_id = $1
+         AND NOT (device_id = ANY($2::int[]))`,
+      [labId, configuredDeviceIds]
+    );
+
+    for (const deviceId of configuredDeviceIds) {
+      await client.query(
+        `INSERT INTO ${DB_SCHEMA}.devices (device_id, device_status, lab_id)
+         VALUES ($1, false, $2)
+         ON CONFLICT (lab_id, device_id)
+         DO UPDATE SET lab_id = EXCLUDED.lab_id`,
+        [deviceId, labId]
+      );
+    }
+
+    await client.query('COMMIT');
 
     // Also save to file for main.py compatibility
     const zonesPath = path.join(__dirname, '../occupancy_detection/zones.json');
@@ -397,33 +592,34 @@ app.post("/api/zones", async (req, res) => {
       zones: Object.keys(zones)
     });
   } catch (error) {
+    if (transactionStarted) {
+      await client.query('ROLLBACK');
+    }
     console.error("Error saving zones:", error);
     res.status(500).json({ message: "Server error" });
+  } finally {
+    client.release();
   }
 });
 
 app.post("/api/start-detection", async (req, res) => {
   try {
-    const { labId, zones } = req.body;
+    const { labId, zones, cameraIndex } = req.body;
+    const parsedCameraIndex = Number.parseInt(cameraIndex, 10);
+    const selectedCameraIndex = Number.isNaN(parsedCameraIndex) ? 0 : parsedCameraIndex;
 
     if (detectionProcess) {
       return res.status(400).json({ message: "Detection is already running" });
     }
 
-    console.log(`Starting detection for lab ${labId} with zones:`, zones);
+    console.log(`Starting detection for lab ${labId} with camera ${selectedCameraIndex} and zones:`, zones);
 
     // Start the main.py detection script supporting cross-platform OS paths
-    const isWindows = os.platform() === 'win32';
-    const venvPython = isWindows
-      ? path.join(__dirname, '../occupancy_detection/venv/Scripts/python.exe')
-      : path.join(__dirname, '../occupancy_detection/venv/bin/python');
-
-    // Fallback to global python if venv doesn't exist
-    const pythonExecutable = fs.existsSync(venvPython) ? venvPython : (isWindows ? 'python' : 'python3');
-
-    detectionProcess = spawn(pythonExecutable, ['main.py', labId.toString()], {
-      cwd: path.join(__dirname, '../occupancy_detection'),
-      stdio: 'pipe'
+    const pythonExecutable = resolvePythonExecutable();
+      
+    detectionProcess = spawn(pythonExecutable, ["main.py", labId.toString(), selectedCameraIndex.toString()], {
+      cwd: OCCUPANCY_DIR,
+      stdio: "pipe"
     });
 
     let output = '';
@@ -468,6 +664,7 @@ app.post("/api/start-detection", async (req, res) => {
     res.json({
       message: "Detection started successfully",
       labId: labId,
+      cameraIndex: selectedCameraIndex,
       zones: Object.keys(zones)
     });
 
@@ -495,7 +692,22 @@ app.post("/api/stop-detection", async (req, res) => {
 
 app.get("/api/detection-status", async (req, res) => {
   try {
-    res.json(currentDetectionStatus);
+    const { labId } = req.query;
+
+    const result = await pool.query(
+      `SELECT device_id, device_status FROM ${DB_SCHEMA}.devices WHERE lab_id = $1`,
+      [labId]
+    );
+
+    const status = {};
+
+    result.rows.forEach(row => {
+      const zoneKey = `configBox1_${row.device_id}`; // match frontend
+      status[zoneKey] = row.device_status;
+    });
+
+    res.json(status);
+
   } catch (error) {
     console.error("Error getting detection status:", error);
     res.status(500).json({ message: "Server error" });
@@ -615,21 +827,70 @@ app.get("/api/energy-consumption/:labId", async (req, res) => {
 
 // ================= DEVICE UPDATE =================
 
+app.post("/api/esp32/control", async (req, res) => {
+  try {
+    const { device_id, status } = req.body;
+    const resolvedDeviceId = device_id;
+
+    if (!resolvedDeviceId || status === undefined) {
+      return res.status(400).json({
+        message: "device_id and status required"
+      });
+    }
+
+    const normalizedDeviceId = String(resolvedDeviceId);
+    if (!["1", "2"].includes(normalizedDeviceId)) {
+      return res.status(400).json({
+        message: "device_id must be 1 or 2 in simulation mode"
+      });
+    }
+
+    const deviceStatus = status === "ON" || status === true;
+    await triggerESP32(normalizedDeviceId, deviceStatus);
+
+    res.status(200).json({
+      message: "ESP32 command sent",
+      device_id: normalizedDeviceId,
+      status: deviceStatus
+    });
+  } catch (error) {
+    console.error("Error sending ESP32 command:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
 app.post("/api/devices/update", async (req, res) => {
   try {
-    const state = req.body.status === "ON";
+    const { device_id, lab_id, status, current } = req.body;
+
+    if (!device_id || !lab_id || status === undefined || current === undefined) {
+      return res.status(400).json({
+        message: "device_id, lab_id, status, current required"
+      });
+    }
+
+    console.log("Received device update:", { device_id, lab_id, status, current });
+    const deviceStatus = status === "ON";
 
     const result = await pool.query(
       `UPDATE ${DB_SCHEMA}.devices
-       SET device_status=$1
-       WHERE device_id=$2 RETURNING *`,
-      [state, req.body.fan_id]
+       SET device_status = $1,
+           sensor_reading = $2
+       WHERE device_id = $3 AND lab_id = $4`,
+      [deviceStatus, current, device_id, lab_id]
     );
 
-    res.json(result.rows[0]);
+    if (result.rowCount === 0) {
+      return res.status(404).json({
+        message: "Device not found for this lab"
+      });
+    }
+
+    res.status(200).json({ message: "Updated successfully" });
+
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Update error" });
+    console.error("Error updating device:", error);
+    res.status(500).json({ message: "Server error" });
   }
 });
 
