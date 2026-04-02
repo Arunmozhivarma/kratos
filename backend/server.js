@@ -14,6 +14,7 @@ const app = express();
 const DB_SCHEMA = (process.env.DB_SCHEMA || "public").replace(/[^a-zA-Z0-9_]/g, "");
 const OCCUPANCY_DIR = path.join(__dirname, "../occupancy_detection");
 const ENABLE_DB_TO_ESP32_SYNC = process.env.ENABLE_DB_TO_ESP32_SYNC === "true";
+const ENABLE_ESP32 = process.env.ENABLE_ESP32 !== "false";
 
 // Store previous device states to detect changes
 let previousDeviceStates = new Map();
