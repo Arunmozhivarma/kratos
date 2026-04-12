@@ -14,8 +14,7 @@ int relayPin2 = 27;
 int sensorPin1 = 34;
 int sensorPin2 = 35;
 
-float baseline1 = 0;
-float baseline2 = 0;
+float value,baseline1=0,baseline2=0;
 
 void setup() {
   Serial.begin(115200);
@@ -24,17 +23,23 @@ void setup() {
   pinMode(relayPin2, OUTPUT);
 
   digitalWrite(relayPin1, LOW);
-  digitalWrite(relayPin2, LOW);
-  delay(2000); // stabilize
-
-  for (int i = 0; i < 200; i++) {
-    baseline1 += analogRead(sensorPin1);
-    baseline2 += analogRead(sensorPin2);
-    delay(5);
+  delay(200);
+  for(int i=0;i<5;i++)
+  {
+      value = analogRead(sensorPin1);
+      baseline1 += value * (3.3 / 4095.0);      
   }
-
-  baseline1 /= 200;
-  baseline2 /= 200;
+  baseline1 /= 5;
+  
+  digitalWrite(relayPin2, LOW);
+  delay(200);
+  for(int i=0;i<5;i++)
+  {
+      value = analogRead(sensorPin2);
+      baseline2 += value * (3.3 / 4095.0);      
+  }
+  baseline2 /= 5;
+  delay(2000); // stabilize
 
   Serial.println(baseline1);
   Serial.println(baseline2);
@@ -58,7 +63,7 @@ void sendDataToBackend(float current, String state, int deviceId) {
   if (WiFi.status() == WL_CONNECTED) {
     HTTPClient http;
 
-    String serverUrl = "http://192.168.0.113:5000/api/devices/update";
+    String serverUrl = "http://192.168.0.103:5000/api/devices/update";
 
     http.begin(serverUrl);
     http.addHeader("Content-Type", "application/json");
@@ -82,32 +87,28 @@ void sendDataToBackend(float current, String state, int deviceId) {
 }
 
 float readCurrentDC(int sensorPin, float baseline) {
-  int samples = 50;
-  float sum = 0;
 
-  for (int i = 0; i < samples; i++) {
-    sum += analogRead(sensorPin);
-    delay(2);
+  float voltage=0;
+
+  for(int i=0;i<5;i++)
+  {
+      value = analogRead(sensorPin2);
+      voltage += value * (3.3 / 4095.0);      
   }
+  voltage /= 5;
 
-  float avg = sum / samples;
+  float current = (voltage - baseline) / 0.185;
 
-  float voltage = avg * (3.3 / 4095.0);
-  float baselineVoltage = baseline * (3.3 / 4095.0);
-
-  float current = (voltage - baselineVoltage) / 0.185;
-
-  return current;
+  return abs(current);
 }
 
 void handleDevice(int relayPin, int sensorPin, String state, int deviceId, float baseline) {
 
   digitalWrite(relayPin, state == "ON" ? HIGH : LOW);
+  delay(200);
 
   float current = readCurrentDC(sensorPin, baseline);
-
-  if (abs(current) < 0.05) current = 0;
-
+  if(state=="OFF") current=0;
   Serial.print("Device ");
   Serial.print(deviceId);
   Serial.print(" Sensor: ");
