@@ -109,7 +109,7 @@ def run_detection(lab_id, preferred_camera_index):
 
             zone_key, status_text, payload = item
             try:
-                resp = session.post(BACKEND_URL, json=payload, timeout=0.2)
+                resp = session.post(BACKEND_URL, json=payload, timeout=2)
                 if resp.status_code == 200:
                     print(f"Updated {zone_key} to {status_text}", flush=True)
                 else:
