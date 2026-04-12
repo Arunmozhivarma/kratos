@@ -24,7 +24,6 @@ export default function AnalyticsPage() {
     try {
       setLoading(true);
       setError('');
-      console.log('Analytics: Fetching data for lab', labId);
 
       // Fetch all analytics data in parallel
       const [
@@ -55,8 +54,6 @@ export default function AnalyticsPage() {
       const consumersData = await consumersResponse.json();
       const peakHoursData = await peakHoursResponse.json();
 
-      console.log('Analytics data loaded:', { summaryData, weeklyData, consumersData });
-
       // Set state
       setSummaryStats(summaryData);
       setWeeklyEnergyCostData(weeklyData);
@@ -76,7 +73,6 @@ export default function AnalyticsPage() {
   useEffect(() => {
     const labId = getSelectedLabId();
     if (labId !== currentLabId) {
-      console.log('Analytics: Lab changed from', currentLabId, 'to', labId);
       setCurrentLabId(labId || '');
       fetchData();
     }
@@ -159,21 +155,25 @@ export default function AnalyticsPage() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-4">
-        {summaryStats.map(([label, val]) => (
-          <div key={label} className="card-surface p-4">
-            <p className="text-sm text-gray-500">{label}</p>
-            <p className="text-2xl font-bold">{val}</p>
+        {summaryStats.map((stat) => (
+          <div key={stat.metric} className="card-surface p-4">
+            <p className="text-sm text-gray-500">{stat.metric}</p>
+            <p className="text-2xl font-bold">{stat.value}</p>
+            <p className="text-xs text-gray-400">{stat.change}</p>
           </div>
         ))}
       </div>
 
       <div className="card-surface p-5">
         <h3 className="mb-1 font-semibold">Weekly Energy and Cost Analysis</h3>
-        <div className="h-80">
+        <div style={{ height: '320px', width: '100%', border: '1px solid #ccc', backgroundColor: '#f9f9f9' }}>
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={weeklyEnergyCostData}>
+            <BarChart data={weeklyEnergyCostData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-              <XAxis dataKey="day" /><YAxis /><Tooltip /><Legend />
+              <XAxis dataKey="day" />
+              <YAxis />
+              <Tooltip />
+              <Legend />
               <Bar dataKey="energy" fill="#3B82F6" name="Energy (kWh)" />
               <Bar dataKey="cost" fill="#10B981" name="Cost ($)" />
             </BarChart>
@@ -183,12 +183,14 @@ export default function AnalyticsPage() {
 
       <div className="card-surface p-5">
         <h3 className="mb-1 font-semibold">Six Month Consumption Trend</h3>
-        <div className="h-80">
+        <div style={{ height: '320px', width: '100%', border: '1px solid #ccc', backgroundColor: '#f9f9f9' }}>
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={sixMonthConsumptionData}>
+            <LineChart data={sixMonthConsumptionData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-              <XAxis dataKey="month" /><YAxis /><Tooltip />
-              <Line type="monotone" dataKey="usage" stroke="#8B5CF6" strokeWidth={3} />
+              <XAxis dataKey="month" />
+              <YAxis />
+              <Tooltip />
+              <Line type="monotone" dataKey="consumption" stroke="#8B5CF6" strokeWidth={3} dot={{ fill: '#8B5CF6' }} />
             </LineChart>
           </ResponsiveContainer>
         </div>
@@ -202,12 +204,12 @@ export default function AnalyticsPage() {
               <div key={item.device}>
                 <div className="mb-1 flex justify-between text-sm">
                   <span>{item.device}</span>
-                  <span>{item.power} kWh</span>
+                  <span>{item.consumption}</span>
                 </div>
                 <div className="h-2 rounded-full bg-gray-100">
                   <div
                     className="h-2 rounded-full bg-blue-500"
-                    style={{ width: `${Math.min((item.power / Math.max(...topEnergyConsumers.map(c => c.power))) * 100, 100)}%` }}
+                    style={{ width: `${Math.min((parseFloat(item.consumption) / Math.max(...topEnergyConsumers.map(c => parseFloat(c.consumption)))) * 100, 100)}%` }}
                   />
                 </div>
               </div>
@@ -218,15 +220,15 @@ export default function AnalyticsPage() {
           <h3 className="mb-1 font-semibold">Peak Usage Hours</h3>
           <div className="space-y-3">
             {peakUsageHours.map((item) => (
-              <div key={item.time}>
+              <div key={item.hour}>
                 <div className="mb-1 flex justify-between text-sm">
-                  <span>{item.time}</span>
-                  <span>{item.power} kW</span>
+                  <span>{item.hour}</span>
+                  <span>{item.usage} kW</span>
                 </div>
                 <div className="h-2 rounded-full bg-gray-100">
                   <div
                     className="h-2 rounded-full bg-emerald-500"
-                    style={{ width: `${Math.min((parseFloat(item.power) / Math.max(...peakUsageHours.map(h => parseFloat(h.power)))) * 100, 100)}%` }}
+                    style={{ width: `${Math.min((parseFloat(item.usage) / Math.max(...peakUsageHours.map(h => parseFloat(h.usage)))) * 100, 100)}%` }}
                   />
                 </div>
               </div>

@@ -13,6 +13,7 @@ import LabSelectionPage from './pages/LabSelectionPage';
 import LabCreationPage from './pages/LabCreationPage';
 import ZoneConfigurationPage from './pages/ZoneConfigurationPage';
 import CameraLivePage from './pages/CameraLivePage';
+import { getLandingPageRoute } from './data/settings';
 
 export default function App() {
   return (
@@ -23,6 +24,7 @@ export default function App() {
       <Route path="/zone-config" element={<ZoneConfigurationPage />} />
       <Route path="/camera-live" element={<CameraLivePage />} />
       <Route path="/app" element={<AppLayout />}>
+        <Route index element={<Navigate to={getLandingPageRoute()} replace />} />
         <Route path="dashboard" element={<DashboardPage />} />
         <Route path="energy" element={<EnergyMonitoringPage />} />
         <Route path="sensors" element={<SensorMonitoringPage />} />

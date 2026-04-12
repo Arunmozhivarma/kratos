@@ -177,29 +177,9 @@ export default function ZoneConfigurationPage() {
     }
   };
 
-  const createDevice = async (fanId) => {
-    try {
-      const response = await fetch('http://localhost:5000/api/devices', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ device_id: fanId, lab_id: labId })
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to create device');
-      }
-
-      return true;
-    } catch (err) {
-      console.error('Error creating device:', err);
-      return false;
-    }
-  };
-
   const handleKeyPress = async (e) => {
     if (e.key === 'Enter') {
       if (currentFanId) {
-        await createDevice(currentFanId);
         setMessage(`Fan ID set to: ${currentFanId}`);
       }
       setIsTyping(false);
