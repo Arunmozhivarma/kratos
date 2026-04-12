@@ -18,7 +18,7 @@ const ENABLE_DB_TO_ESP32_SYNC = process.env.ENABLE_DB_TO_ESP32_SYNC === "true";
 let previousDeviceStates = new Map();
 
 // ESP32 IP Configuration
-const ESP32_IP = "http://192.168.0.114"; 
+const ESP32_IP = "http://192.168.0.105"; 
 
 // Function to trigger ESP32
 async function triggerESP32(deviceId, state) {
