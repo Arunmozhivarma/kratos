@@ -2,6 +2,18 @@ import { useEffect, useState, useCallback } from 'react';
 import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { getSelectedLabId } from '../data/labs';
 
+function getEnergyDisplayScale(values) {
+  const totalKwh = values.reduce((sum, value) => sum + Number(value || 0), 0);
+
+  return totalKwh > 0 && totalKwh < 0.01
+    ? { unit: 'Wh', multiplier: 1000, digits: 3 }
+    : { unit: 'kWh', multiplier: 1, digits: 3 };
+}
+
+function formatScaledEnergy(value, scale) {
+  return `${(Number(value || 0) * scale.multiplier).toFixed(scale.digits)} ${scale.unit}`;
+}
+
 export default function AnalyticsPage() {
   const [summaryStats, setSummaryStats] = useState([]);
   const [weeklyEnergyCostData, setWeeklyEnergyCostData] = useState([]);
@@ -10,7 +22,6 @@ export default function AnalyticsPage() {
   const [peakUsageHours, setPeakUsageHours] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [currentLabId, setCurrentLabId] = useState('');
 
   const fetchData = useCallback(async () => {
     const labId = getSelectedLabId();
@@ -69,18 +80,20 @@ export default function AnalyticsPage() {
     }
   }, []);
 
-  // Check for lab changes and fetch data
-  useEffect(() => {
-    const labId = getSelectedLabId();
-    if (labId !== currentLabId) {
-      setCurrentLabId(labId || '');
-      fetchData();
-    }
-  }, [getSelectedLabId(), currentLabId, fetchData]);
-
   // Initial fetch
   useEffect(() => {
     fetchData();
+  }, [fetchData]);
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        fetchData();
+      }
+    };
+
+    window.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => window.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [fetchData]);
 
   const handleExportReport = () => {
@@ -139,6 +152,22 @@ export default function AnalyticsPage() {
     );
   }
 
+  const weeklyEnergyScale = getEnergyDisplayScale(weeklyEnergyCostData.map((item) => item.energy));
+  const weeklyChartData = weeklyEnergyCostData.map((item) => ({
+    ...item,
+    energyDisplay: Number(item.energy || 0) * weeklyEnergyScale.multiplier,
+    cost: Number(item.cost || 0),
+  }));
+  const sixMonthEnergyScale = getEnergyDisplayScale(
+    sixMonthConsumptionData.map((item) => item.consumption)
+  );
+  const sixMonthChartData = sixMonthConsumptionData.map((item) => ({
+    ...item,
+    consumptionDisplay: Number(item.consumption || 0) * sixMonthEnergyScale.multiplier,
+  }));
+  const peakHourEnergyScale = getEnergyDisplayScale(peakUsageHours.map((item) => item.usage));
+  const maxPeakUsage = Math.max(...peakUsageHours.map((item) => Number(item.usage || 0)), 0);
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -154,8 +183,10 @@ export default function AnalyticsPage() {
         </button>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-4">
-        {summaryStats.map((stat) => (
+      <div className="grid gap-4 md:grid-cols-3">
+        {summaryStats
+          .filter((stat) => stat.metric !== 'Average Temperature')
+          .map((stat) => (
           <div key={stat.metric} className="card-surface p-4">
             <p className="text-sm text-gray-500">{stat.metric}</p>
             <p className="text-2xl font-bold">{stat.value}</p>
@@ -168,13 +199,20 @@ export default function AnalyticsPage() {
         <h3 className="mb-1 font-semibold">Weekly Energy and Cost Analysis</h3>
         <div style={{ height: '320px', width: '100%', border: '1px solid #ccc', backgroundColor: '#f9f9f9' }}>
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={weeklyEnergyCostData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+            <BarChart data={weeklyChartData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
               <XAxis dataKey="day" />
               <YAxis />
-              <Tooltip />
+              <Tooltip
+                formatter={(value, name) => [
+                  name === 'Energy'
+                    ? `${Number(value).toFixed(weeklyEnergyScale.digits)} ${weeklyEnergyScale.unit}`
+                    : `$${Number(value).toFixed(6)}`,
+                  name,
+                ]}
+              />
               <Legend />
-              <Bar dataKey="energy" fill="#3B82F6" name="Energy (kWh)" />
+              <Bar dataKey="energyDisplay" fill="#3B82F6" name="Energy" />
               <Bar dataKey="cost" fill="#10B981" name="Cost ($)" />
             </BarChart>
           </ResponsiveContainer>
@@ -182,15 +220,20 @@ export default function AnalyticsPage() {
       </div>
 
       <div className="card-surface p-5">
-        <h3 className="mb-1 font-semibold">Six Month Consumption Trend</h3>
+        <h3 className="mb-1 font-semibold">Six Month Energy Consumption Trend</h3>
         <div style={{ height: '320px', width: '100%', border: '1px solid #ccc', backgroundColor: '#f9f9f9' }}>
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={sixMonthConsumptionData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+            <LineChart data={sixMonthChartData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
               <XAxis dataKey="month" />
               <YAxis />
-              <Tooltip />
-              <Line type="monotone" dataKey="consumption" stroke="#8B5CF6" strokeWidth={3} dot={{ fill: '#8B5CF6' }} />
+              <Tooltip
+                formatter={(value) => [
+                  `${Number(value).toFixed(sixMonthEnergyScale.digits)} ${sixMonthEnergyScale.unit}`,
+                  'Energy',
+                ]}
+              />
+              <Line type="monotone" dataKey="consumptionDisplay" stroke="#8B5CF6" strokeWidth={3} dot={{ fill: '#8B5CF6' }} />
             </LineChart>
           </ResponsiveContainer>
         </div>
@@ -198,7 +241,7 @@ export default function AnalyticsPage() {
 
       <div className="grid gap-4 md:grid-cols-2">
         <div className="card-surface p-5">
-          <h3 className="mb-1 font-semibold">Top Energy Consumers</h3>
+          <h3 className="mb-1 font-semibold">Current Highest Power Devices</h3>
           <div className="space-y-3">
             {topEnergyConsumers.map((item) => (
               <div key={item.device}>
@@ -217,18 +260,18 @@ export default function AnalyticsPage() {
           </div>
         </div>
         <div className="card-surface p-5">
-          <h3 className="mb-1 font-semibold">Peak Usage Hours</h3>
+          <h3 className="mb-1 font-semibold">Peak Energy Hours</h3>
           <div className="space-y-3">
             {peakUsageHours.map((item) => (
               <div key={item.hour}>
                 <div className="mb-1 flex justify-between text-sm">
                   <span>{item.hour}</span>
-                  <span>{item.usage} kW</span>
+                  <span>{formatScaledEnergy(item.usage, peakHourEnergyScale)}</span>
                 </div>
                 <div className="h-2 rounded-full bg-gray-100">
                   <div
                     className="h-2 rounded-full bg-emerald-500"
-                    style={{ width: `${Math.min((parseFloat(item.usage) / Math.max(...peakUsageHours.map(h => parseFloat(h.usage)))) * 100, 100)}%` }}
+                    style={{ width: `${maxPeakUsage > 0 ? Math.min((Number(item.usage || 0) / maxPeakUsage) * 100, 100) : 0}%` }}
                   />
                 </div>
               </div>

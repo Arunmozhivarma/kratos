@@ -1,16 +1,19 @@
 import { useEffect, useState, useCallback } from 'react';
 import EnergyChartCard from '../components/EnergyChartCard';
 import StatCard from '../components/StatCard';
-import ToggleSwitch from '../components/ToggleSwitch';
-import {
-  getSelectedDepartmentId,
-  getSelectedLab,
-  getSelectedLabId,
-} from '../data/labs';
-export default function DashboardPage() {
-  const [mainLights, setMainLights] = useState(true);
-  const [fan, setFan] = useState(false);
+import { getSelectedLabId } from '../data/labs';
 
+function formatEnergyValue(kwh) {
+  const numericKwh = Number(kwh ?? 0);
+
+  if (numericKwh > 0 && numericKwh < 0.01) {
+    return `${(numericKwh * 1000).toFixed(3)} Wh`;
+  }
+
+  return `${numericKwh.toFixed(2)} kWh`;
+}
+
+export default function DashboardPage() {
   const [dashboardStats, setDashboardStats] = useState([
     { label: 'Current Power', value: '--' },
     { label: 'Energy Today', value: '--' },
@@ -21,29 +24,26 @@ export default function DashboardPage() {
   const [dashboardError, setDashboardError] = useState('');
   const [energyData, setEnergyData] = useState([]);
 
-  // 🔥 Main fetch function
   const fetchDashboardData = useCallback(() => {
     const labId = getSelectedLabId();
-    const departmentId = getSelectedDepartmentId();
-    const labName = getSelectedLab();
-
-    console.log('Fetching dashboard data...');
-    console.log('Lab ID:', labId);
-    console.log('Department ID:', departmentId);
-    console.log('Lab Name:', labName);
 
     if (!labId) {
       setDashboardError('Please select a lab.');
+      setDashboardStats([
+        { label: 'Current Power', value: '--' },
+        { label: 'Energy Today', value: '--' },
+        { label: 'Active Devices', value: '--' },
+        { label: 'Last Updated', value: '--' },
+      ]);
       setEnergyData([]);
       return;
     }
 
-    // =========================
-    // 📊 Dashboard Stats
-    // =========================
     fetch(`http://localhost:5000/api/dashboard/${encodeURIComponent(labId)}`)
       .then((res) => {
-        if (!res.ok) throw new Error('Failed to load dashboard data');
+        if (!res.ok) {
+          throw new Error('Failed to load dashboard data');
+        }
         return res.json();
       })
       .then((data) => {
@@ -58,7 +58,7 @@ export default function DashboardPage() {
           },
           {
             label: 'Energy Today',
-            value: `${Number(data.energy_today_kwh ?? 0).toFixed(2)} kWh`,
+            value: formatEnergyValue(data.energy_today_kwh),
           },
           {
             label: 'Active Devices',
@@ -77,27 +77,24 @@ export default function DashboardPage() {
         setDashboardError('Failed to load dashboard stats');
       });
 
-    // =========================
-    // 📈 Energy Chart Data
-    // =========================
     fetch(
       `http://localhost:5000/api/energy-consumption/${encodeURIComponent(
         labId
       )}?days=7`
     )
       .then((res) => {
-        if (!res.ok) throw new Error('Failed to load energy data');
+        if (!res.ok) {
+          throw new Error('Failed to load energy data');
+        }
         return res.json();
       })
       .then((data) => {
-        console.log('Energy consumption data:', data);
-
         const formattedData = data
           .map((item) => ({
             dateObj: new Date(item.date),
-            kWh: parseFloat(item.total), // ✅ FIXED
+            kWh: parseFloat(item.total),
           }))
-          .sort((a, b) => a.dateObj - b.dateObj) // ✅ SORT
+          .sort((a, b) => a.dateObj - b.dateObj)
           .map((item) => ({
             date: item.dateObj.toLocaleDateString('en-US', {
               month: 'short',
@@ -114,16 +111,23 @@ export default function DashboardPage() {
       });
   }, []);
 
-  // ✅ Initial load
   useEffect(() => {
     fetchDashboardData();
   }, [fetchDashboardData]);
 
-  // ✅ Refresh when tab becomes active
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      if (!document.hidden) {
+        fetchDashboardData();
+      }
+    }, 15000);
+
+    return () => window.clearInterval(intervalId);
+  }, [fetchDashboardData]);
+
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (!document.hidden) {
-        console.log('Tab active → refreshing...');
         fetchDashboardData();
       }
     };
@@ -135,12 +139,10 @@ export default function DashboardPage() {
 
   return (
     <div className="grid gap-6 xl:grid-cols-12">
-      {/* 📈 Chart */}
       <div className="space-y-6 xl:col-span-8">
         <EnergyChartCard data={energyData} />
       </div>
 
-      {/* 📊 Stats + Controls */}
       <div className="space-y-6 xl:col-span-4">
         {dashboardError && (
           <p className="text-sm text-rose-500">{dashboardError}</p>
@@ -154,40 +156,6 @@ export default function DashboardPage() {
               value={stat.value}
             />
           ))}
-        </div>
-
-        {/* ⚡ Controls */}
-        <div className="card-surface p-5">
-          <h3 className="mb-4 font-semibold">Quick Device Control</h3>
-
-          <div className="space-y-3 text-sm">
-            <div className="flex items-center justify-between">
-              <span>Main Lights</span>
-              <ToggleSwitch
-                checked={mainLights}
-                onChange={setMainLights}
-              />
-            </div>
-
-            <div className="flex items-center justify-between">
-              <span>Fan</span>
-              <ToggleSwitch checked={fan} onChange={setFan} />
-            </div>
-          </div>
-
-          <button
-            onClick={() => {
-              setMainLights(false);
-              setFan(false);
-            }}
-            className="mt-4 w-full rounded-xl border border-rose-300 px-3 py-2 text-sm font-medium text-rose-600"
-          >
-            Emergency OFF
-          </button>
-
-          <p className="mt-2 text-xs text-gray-500">
-            Manual override enabled
-          </p>
         </div>
       </div>
     </div>

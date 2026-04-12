@@ -11,6 +11,20 @@ import {
   ResponsiveContainer
 } from "recharts";
 
+function formatEnergyValue(kwh) {
+  const numericKwh = Number(kwh || 0);
+
+  if (numericKwh > 0 && numericKwh < 0.01) {
+    return `${(numericKwh * 1000).toFixed(3)} Wh`;
+  }
+
+  return `${numericKwh.toFixed(3)} kWh`;
+}
+
+function formatCostValue(cost) {
+  return `$${Number(cost || 0).toFixed(6)}`;
+}
+
 export default function EnergyMonitoringPage() {
   const [energyComparisons, setEnergyComparisons] = useState([]);
   const [powerLineData, setPowerLineData] = useState([]);
@@ -82,7 +96,7 @@ export default function EnergyMonitoringPage() {
       <div className="space-y-6">
         <div>
           <h1 className="text-2xl font-bold">Energy Monitoring</h1>
-          <p className="text-sm text-gray-600">Comparison of usage against yesterday, last week and last month</p>
+          <p className="text-sm text-gray-600">Comparison of energy consumption against yesterday, last week and last month</p>
         </div>
         <div className="card-surface p-8">
           <div className="text-center text-gray-500">Loading energy monitoring data...</div>
@@ -96,7 +110,7 @@ export default function EnergyMonitoringPage() {
       <div className="space-y-6">
         <div>
           <h1 className="text-2xl font-bold">Energy Monitoring</h1>
-          <p className="text-sm text-gray-600">Comparison of usage against yesterday, last week and last month</p>
+          <p className="text-sm text-gray-600">Comparison of energy consumption against yesterday, last week and last month</p>
         </div>
         <div className="card-surface p-8">
           <div className="text-center text-rose-500">{error}</div>
@@ -109,7 +123,7 @@ export default function EnergyMonitoringPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold">Energy Monitoring</h1>
-        <p className="text-sm text-gray-600">Comparison of usage against yesterday, last week and last month</p>
+        <p className="text-sm text-gray-600">Comparison of energy consumption against yesterday, last week and last month</p>
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">
@@ -117,8 +131,8 @@ export default function EnergyMonitoringPage() {
           energyComparisons.map((item) => (
             <div key={item.period || Math.random()} className="card-surface p-4">
               <p className="text-sm text-gray-500">{item.period || 'Unknown'}</p>
-              <p className="text-2xl font-bold">{item.consumption || 0} kWh</p>
-              <p className="text-sm text-gray-600">${item.cost || 0} $</p>
+              <p className="text-2xl font-bold">{formatEnergyValue(item.consumption)}</p>
+              <p className="text-sm text-gray-600">{formatCostValue(item.cost)}</p>
               <p className={`text-sm ${item.comparison >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
                 {item.comparison >= 0 ? '+' : ''}{item.comparison || 0}%
               </p>
@@ -141,7 +155,7 @@ export default function EnergyMonitoringPage() {
                 <XAxis dataKey="minute" />
                 <YAxis />
                 <Tooltip
-                  formatter={(value) => [`${value} W`, 'Power']}
+                  formatter={(value) => [`${Number(value).toFixed(3)} W`, 'Power']}
                   labelFormatter={(label) => `Time: ${label}`}
                 />
                 <Line type="monotone" dataKey="power" stroke="#22C55E" strokeWidth={3} dot={{ fill: '#22C55E' }} />
