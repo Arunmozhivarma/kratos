@@ -1,0 +1,7 @@
+flask
+flask-cors
+opencv-python
+pandas
+requests
+scikit-learn
+ultralytics
