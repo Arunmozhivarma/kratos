@@ -1,4 +1,6 @@
 const pool = require('../db');
+const DB_SCHEMA = (process.env.DB_SCHEMA || 'public').replace(/[^a-zA-Z0-9_]/g, '');
+const DEVICE_TABLE = `${DB_SCHEMA}.device`;
 
 class ZoneAutomationService {
   /**
@@ -14,9 +16,9 @@ class ZoneAutomationService {
       
       // Get all devices for this lab
       const devicesResult = await client.query(
-        `SELECT device_id FROM ${process.env.DB_SCHEMA || 'public'}.devices 
+        `SELECT id AS device_id FROM ${DEVICE_TABLE}
          WHERE lab_id = $1`,
-        [labId.toString()]
+        [Number(labId)]
       );
       
       let zonesCreated = 0;
@@ -80,10 +82,10 @@ class ZoneAutomationService {
       for (const deviceId of deviceIds) {
         // Update device lab assignment
         await client.query(
-          `UPDATE ${process.env.DB_SCHEMA || 'public'}.devices 
+          `UPDATE ${DEVICE_TABLE}
            SET lab_id = $1 
-           WHERE device_id = $2`,
-          [labId.toString(), deviceId]
+           WHERE id = $2`,
+          [Number(labId), deviceId]
         );
         
         // Create zone if it doesn't exist
@@ -179,9 +181,9 @@ class ZoneAutomationService {
     try {
       // Get devices for this lab
       const devicesResult = await pool.query(
-        `SELECT device_id FROM ${process.env.DB_SCHEMA || 'public'}.devices 
+        `SELECT id AS device_id FROM ${DEVICE_TABLE}
          WHERE lab_id = $1`,
-        [labId.toString()]
+        [Number(labId)]
       );
       
       // Get zones for this lab
