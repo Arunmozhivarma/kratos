@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
+  clearLabSelection,
   getSelectedDepartment,
   getSelectedDepartmentId,
+  getSelectedLabId,
   setSelectedLab,
 } from '../data/labs';
 import { getLandingPageRoute } from '../data/settings';
@@ -15,6 +17,7 @@ export default function LabSelectionPage() {
   const [labs, setLabs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [deletingLabId, setDeletingLabId] = useState('');
 
   useEffect(() => {
     if (!departmentId) {
@@ -32,13 +35,10 @@ export default function LabSelectionPage() {
         return res.json();
       })
       .then((data) => {
-        console.log('Labs list from backend:', data);
-
-        // Add test lab for testing purposes
         const testLab = {
           id: 'test-lab',
           lab_id: 'test-lab',
-          name: 'Test Lab (Simulation)'
+          name: 'Test Lab (Simulation)',
         };
 
         setLabs([testLab, ...data]);
@@ -56,30 +56,19 @@ export default function LabSelectionPage() {
   const handleLabClick = (lab) => {
     const selectedLabId = lab.lab_id ?? lab.id ?? null;
 
-    console.log('CLICKED LAB:', lab);
-    console.log('Resolved labId:', selectedLabId);
-
     if (!selectedLabId) {
       console.error('Lab ID missing. Cannot continue.');
       return;
     }
 
-    // Save selection
     setSelectedLab(lab.name, selectedLabId);
 
-    // Verify storage
-    const storedLab = localStorage.getItem('kratos_lab');
     const storedLabId = localStorage.getItem('kratos_lab_id');
-
-    console.log('Stored lab:', storedLab);
-    console.log('Stored lab id:', storedLabId);
-
     if (!storedLabId) {
       console.error('Lab ID failed to store in localStorage');
       return;
     }
 
-    // Navigate after confirming storage
     navigate(getLandingPageRoute());
   };
 
@@ -91,17 +80,62 @@ export default function LabSelectionPage() {
       return;
     }
 
-    // Navigate to camera live view with lab info
     navigate('/camera-live', {
       state: {
         labId: selectedLabId,
-        labName: lab.name
-      }
+        labName: lab.name,
+      },
     });
   };
 
   const handleCreateLab = () => {
     navigate('/lab-create');
+  };
+
+  const handleDeleteLab = async (lab) => {
+    const selectedLabId = String(lab.lab_id ?? lab.id ?? '');
+
+    if (!selectedLabId || selectedLabId === 'test-lab') {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Delete "${lab.name}"? This will remove the lab and all its related data from the database.`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setDeletingLabId(selectedLabId);
+
+      const response = await fetch(
+        `http://localhost:5000/api/labs/${encodeURIComponent(selectedLabId)}`,
+        { method: 'DELETE' }
+      );
+
+      if (!response.ok) {
+        throw new Error('Failed to delete lab');
+      }
+
+      if (getSelectedLabId() === selectedLabId) {
+        clearLabSelection();
+      }
+
+      setLabs((currentLabs) =>
+        currentLabs.filter(
+          (currentLab) =>
+            String(currentLab.lab_id ?? currentLab.id ?? '') !== selectedLabId
+        )
+      );
+      setError('');
+    } catch (deleteError) {
+      console.error('Error deleting lab:', deleteError);
+      setError('Could not delete the selected lab. Please try again.');
+    } finally {
+      setDeletingLabId('');
+    }
   };
 
   return (
@@ -139,27 +173,50 @@ export default function LabSelectionPage() {
         ) : (
           <div className="mt-6 space-y-4">
             <div className="grid gap-3 md:grid-cols-2">
-              {labs.map((lab) => (
-                <div key={lab.lab_id ?? lab.id ?? lab.name} className="rounded-xl border border-emerald-100 p-4 dark:border-gray-600">
-                  <div className="flex justify-between items-start mb-3">
-                    <p className="font-semibold">{lab.name}</p>
+              {labs.map((lab) => {
+                const labKey = String(lab.lab_id ?? lab.id ?? lab.name);
+                const isDeleting = deletingLabId === labKey;
+                const isTestLab = labKey === 'test-lab';
+
+                return (
+                  <div
+                    key={labKey}
+                    className="rounded-xl border border-emerald-100 p-4 dark:border-gray-600"
+                  >
+                    <div className="mb-3 flex items-start justify-between gap-2">
+                      <p className="font-semibold">{lab.name}</p>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleCameraClick(lab)}
+                          className="rounded-lg bg-blue-600 px-3 py-1 text-xs font-medium text-white transition hover:bg-blue-700"
+                          title="Open Camera"
+                        >
+                          Camera
+                        </button>
+                        {!isTestLab && (
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteLab(lab)}
+                            disabled={isDeleting}
+                            className="rounded-lg bg-rose-600 px-3 py-1 text-xs font-medium text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-60"
+                            title="Delete Lab"
+                          >
+                            {isDeleting ? 'Deleting...' : 'Delete'}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
                     <button
-                      onClick={() => handleCameraClick(lab)}
-                      className="rounded-lg bg-blue-600 hover:bg-blue-700 px-3 py-1 text-xs font-medium text-white transition"
-                      title="Open Camera"
+                      type="button"
+                      onClick={() => handleLabClick(lab)}
+                      className="w-full rounded-xl border border-gray-200 px-3 py-2 text-left text-sm transition hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700"
                     >
-                      📷 Camera
+                      Enter Dashboard
                     </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => handleLabClick(lab)}
-                    className="w-full rounded-xl border border-gray-200 px-3 py-2 text-left transition hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700 text-sm"
-                  >
-                    Enter Dashboard
-                  </button>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             <div className="border-t border-gray-200 pt-4 dark:border-gray-600">

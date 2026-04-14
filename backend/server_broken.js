@@ -513,9 +513,21 @@ app.post("/api/labs/:labId/bulk-assign-devices", async (req, res) => {
   try {
     const { labId } = req.params;
     const { deviceIds } = req.body;
-    res.status(500).json({ message: "Error" });
-  }
+
+    // Bulk assign devices to zones
+    const result = await ZoneAutomationService.bulkAssignDevices(labId, deviceIds);
+
+    res.json({
+      message: "Devices assigned successfully",
+      labId: labId,
+      deviceIds: deviceIds,
+      assignedCount: result.assignedCount
     });
+  } catch (error) {
+    console.error("Error in bulk device assignment:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
 
 // ================= DEVICE UPDATE =================
 
