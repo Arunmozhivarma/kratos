@@ -20,21 +20,42 @@ const ENABLE_ESP32 = process.env.ENABLE_ESP32 !== "false";
 let previousDeviceStates = new Map();
 
 // ESP32 IP Configuration
-const ESP32_IP = "http://192.168.0.114"; 
+const ESP32_IP = "http://10.109.157.109";
 
 // Function to trigger ESP32
 async function triggerESP32(deviceId, state) {
   if (!ENABLE_ESP32) {
-    return; // Skip ESP32 calls if not enabled
+    return {
+      sent: false,
+      skipped: true,
+      reason: "ENABLE_ESP32 is false"
+    };
   }
 
+  const action = state ? "on" : "off";
+  const endpoint = `${ESP32_IP}/${action}${deviceId}`;
+  console.log(`Sending ESP32 command: ${endpoint}`);
+
   try {
-    const action = state ? "on" : "off";
-    const endpoint = `${ESP32_IP}/${action}${deviceId}`;
-    console.log(`Sending ESP32 command: ${endpoint}`);
-    await axios.get(endpoint, { timeout: 5000 });
+    const response = await axios.get(endpoint, {
+      timeout: 5000,
+      validateStatus: () => true
+    });
+
+    if (response.status < 200 || response.status >= 300) {
+      throw new Error(`ESP32 returned HTTP ${response.status}`);
+    }
+
+    return {
+      sent: true,
+      skipped: false,
+      endpoint,
+      httpStatus: response.status
+    };
   } catch (err) {
-    console.error(`ESP32 error:`, err.message);
+    const message = `ESP32 request failed for ${endpoint}: ${err.message}`;
+    console.error(message);
+    throw new Error(message);
   }
 }
 
@@ -830,33 +851,57 @@ app.get("/api/energy-consumption/:labId", async (req, res) => {
 
 app.post("/api/esp32/control", async (req, res) => {
   try {
-    const { device_id, status } = req.body;
-    const resolvedDeviceId = device_id;
+    const { device_id, status, lab_id } = req.body;
+    const resolvedDeviceId = String(device_id ?? "").trim();
+    const resolvedLabId = lab_id === undefined || lab_id === null
+      ? null
+      : String(lab_id).trim();
 
-    if (!resolvedDeviceId || status === undefined) {
+    if (resolvedDeviceId.length === 0 || status === undefined) {
       return res.status(400).json({
         message: "device_id and status required"
       });
     }
 
-    const normalizedDeviceId = String(resolvedDeviceId);
-    if (!["1", "2"].includes(normalizedDeviceId)) {
+    if (!/^\d+$/.test(resolvedDeviceId) || Number.parseInt(resolvedDeviceId, 10) <= 0) {
       return res.status(400).json({
-        message: "device_id must be 1 or 2 in simulation mode"
+        message: "device_id must be a positive integer"
       });
     }
 
+    const normalizedDeviceId = String(Number.parseInt(resolvedDeviceId, 10));
     const deviceStatus = status === "ON" || status === true;
-    await triggerESP32(normalizedDeviceId, deviceStatus);
+    console.log("Received ESP32 control request:", {
+      device_id: normalizedDeviceId,
+      lab_id: resolvedLabId,
+      status: deviceStatus ? "ON" : "OFF"
+    });
+    const espResult = await triggerESP32(normalizedDeviceId, deviceStatus);
+
+    if (!espResult.sent) {
+      return res.status(503).json({
+        message: "ESP32 command was not sent",
+        device_id: normalizedDeviceId,
+        lab_id: resolvedLabId,
+        status: deviceStatus,
+        reason: espResult.reason || "Unknown"
+      });
+    }
 
     res.status(200).json({
       message: "ESP32 command sent",
       device_id: normalizedDeviceId,
-      status: deviceStatus
+      lab_id: resolvedLabId,
+      status: deviceStatus,
+      esp32_endpoint: espResult.endpoint,
+      esp32_http_status: espResult.httpStatus
     });
   } catch (error) {
     console.error("Error sending ESP32 command:", error);
-    res.status(500).json({ message: "Server error" });
+    res.status(502).json({
+      message: "Failed to send ESP32 command",
+      error: error.message
+    });
   }
 });
 

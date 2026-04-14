@@ -2,6 +2,9 @@ import sys
 import time
 import threading
 import queue
+import importlib.util
+import os
+from datetime import datetime
 from ultralytics import YOLO
 import cv2
 import requests
@@ -30,6 +33,49 @@ ZONE_REFERENCE_WIDTH = 1280.0
 ZONE_REFERENCE_HEIGHT = 720.0
 CAPTURE_WIDTH = 854
 CAPTURE_HEIGHT = 480
+MIN_OFF_DELAY_SEC = 5.0
+MAX_OFF_DELAY_SEC = 60.0
+MIN_ON_DELAY_SEC = 5.0
+MAX_ON_DELAY_SEC = 60.0
+
+
+def load_occupancy_probability_provider():
+    ml_main_path = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "ml-model", "main.py")
+    )
+    try:
+        spec = importlib.util.spec_from_file_location("ml_model_main", ml_main_path)
+        if spec is None or spec.loader is None:
+            raise RuntimeError(f"Failed to load module spec from {ml_main_path}")
+
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        provider = getattr(module, "get_current_occupancy_probability", None)
+        if not callable(provider):
+            raise RuntimeError("ml-model/main.py does not expose get_current_occupancy_probability()")
+
+        def in_trained_time_window():
+            try:
+                get_current_period = getattr(module, "get_current_period", None)
+                day_map = getattr(module, "DAY_MAP", {})
+                if not callable(get_current_period) or not isinstance(day_map, dict):
+                    return True
+
+                now = datetime.now()
+                day_name = now.strftime("%A")
+                if day_name not in day_map:
+                    return False
+
+                return get_current_period(now) is not None
+            except Exception:
+                # Keep detection running even if timetable inspection fails.
+                return True
+
+        print("Loaded occupancy probability provider from ml-model/main.py", flush=True)
+        return provider, in_trained_time_window
+    except Exception as e:
+        print(f"Failed to load occupancy model provider, defaulting to p=0.0: {e}", flush=True)
+        return (lambda: 0.0), (lambda: False)
 
 @app.route('/video_feed')
 def video_feed():
@@ -71,6 +117,30 @@ def latest_frame():
 def run_detection(lab_id, preferred_camera_index):
     global current_frame
     gc.disable()
+    occupancy_probability_provider, in_trained_time_window_provider = load_occupancy_probability_provider()
+    try:
+        initial_occupancy_probability = float(occupancy_probability_provider())
+    except Exception as e:
+        print(f"Error getting initial occupancy probability, defaulting to 0.0: {e}", flush=True)
+        initial_occupancy_probability = 0.0
+    initial_occupancy_probability = max(0.0, min(1.0, initial_occupancy_probability))
+    initial_in_trained_time_window = bool(in_trained_time_window_provider())
+    initial_off_delay_sec = MIN_OFF_DELAY_SEC + initial_occupancy_probability * (MAX_OFF_DELAY_SEC - MIN_OFF_DELAY_SEC)
+    if initial_in_trained_time_window:
+        initial_on_delay_sec = MIN_ON_DELAY_SEC + (1.0 - initial_occupancy_probability) * (
+            MAX_ON_DELAY_SEC - MIN_ON_DELAY_SEC
+        )
+    else:
+        initial_on_delay_sec = MAX_ON_DELAY_SEC
+    print(
+        (
+            "Initial ML occupancy prediction at detection start: "
+            f"{initial_occupancy_probability * 100:.2f}% | "
+            f"computed ON delay: {initial_on_delay_sec:.2f}s | "
+            f"computed OFF delay: {initial_off_delay_sec:.2f}s"
+        ),
+        flush=True
+    )
 
     # Fetch zones from the Node backend API instead of local json
     try:
@@ -94,9 +164,13 @@ def run_detection(lab_id, preferred_camera_index):
     # Backend API endpoint that forwards zone-driven ON/OFF to ESP32.
     BACKEND_URL = "http://localhost:5000/api/esp32/control"
 
-    previous_statuses = {zone_key: False for zone_key in zones.keys()}
+    device_statuses = {zone_key: False for zone_key in zones.keys()}
+    zone_occupied_since = {zone_key: None for zone_key in zones.keys()}
+    zone_empty_since = {zone_key: None for zone_key in zones.keys()}
     last_fan_status = {zone_key: False for zone_key in zones.keys()}
     last_person_boxes = []
+    last_on_delay_sec = initial_on_delay_sec
+    last_off_delay_sec = MIN_OFF_DELAY_SEC
     frame_counter = 0
     status_queue = queue.Queue(maxsize=256)
 
@@ -108,16 +182,51 @@ def run_detection(lab_id, preferred_camera_index):
                 break
 
             zone_key, status_text, payload = item
-            try:
-                resp = session.post(BACKEND_URL, json=payload, timeout=0.2)
-                if resp.status_code == 200:
-                    print(f"Updated {zone_key} to {status_text}", flush=True)
-                else:
-                    print(f"Failed to update {zone_key}: {resp.status_code}", flush=True)
-            except requests.exceptions.RequestException as e:
-                print(f"Error sending update for {zone_key}: {e}", flush=True)
+            max_attempts = 3
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    print(
+                        f"Dispatching {status_text} for {zone_key} to {BACKEND_URL} with payload={payload} (attempt {attempt}/{max_attempts})",
+                        flush=True
+                    )
+                    resp = session.post(BACKEND_URL, json=payload, timeout=1.5)
+                    if resp.status_code == 200:
+                        print(
+                            f"Updated {zone_key} to {status_text} (backend_status={resp.status_code})",
+                            flush=True
+                        )
+                        break
+
+                    print(
+                        f"Failed to update {zone_key}: status={resp.status_code} body={resp.text[:200]}",
+                        flush=True
+                    )
+                except requests.exceptions.RequestException as e:
+                    print(f"Error sending update for {zone_key}: {e}", flush=True)
+
+                if attempt < max_attempts:
+                    time.sleep(0.2)
 
     threading.Thread(target=status_sender, daemon=True).start()
+
+    def queue_status_update(zone_key, turn_on):
+        actual_device_id = zone_key.split('_')[-1]
+        payload = {
+            "device_id": actual_device_id,
+            "status": "ON" if turn_on else "OFF",
+            "lab_id": str(lab_id)
+        }
+        try:
+            status_queue.put_nowait((zone_key, "ON" if turn_on else "OFF", payload))
+            print(
+                f"Queued {'ON' if turn_on else 'OFF'} for {zone_key} (device_id={actual_device_id})",
+                flush=True
+            )
+            return True
+        except queue.Full:
+            # Drop non-critical update if the queue is saturated; the next state transition will resync.
+            print(f"Dropped update for {zone_key}: status queue is full", flush=True)
+            return False
 
     print("Waiting for camera access. Starting YOLO detection loop...", flush=True)
     cap = None
@@ -211,21 +320,53 @@ def run_detection(lab_id, preferred_camera_index):
                     if min(zx1, zx2) <= cx <= max(zx1, zx2) and min(zy1, zy2) <= cy <= max(zy1, zy2):
                         fan_status[zone_key] = True
 
-            # Send updates to backend only if status changed
-            for zone_key, status in fan_status.items():
-                if status != previous_statuses[zone_key]:
-                    # Extract the actual device id from zone key (e.g. configBox1_1 -> 1)
-                    actual_device_id = zone_key.split('_')[-1]
-                    try:
-                        payload = {
-                            "device_id": actual_device_id,
-                            "status": "ON" if status else "OFF"
-                        }
-                        status_queue.put_nowait((zone_key, "ON" if status else "OFF", payload))
-                    except queue.Full:
-                        # Drop non-critical update if the queue is saturated; the next state transition will resync.
-                        pass
-                    previous_statuses[zone_key] = status
+            now_ts = time.time()
+            try:
+                occupancy_probability = float(occupancy_probability_provider())
+            except Exception as e:
+                print(f"Error getting occupancy probability, defaulting to 0.0: {e}", flush=True)
+                occupancy_probability = 0.0
+
+            occupancy_probability = max(0.0, min(1.0, occupancy_probability))
+            in_trained_time_window = bool(in_trained_time_window_provider())
+            if in_trained_time_window:
+                on_delay_sec = MIN_ON_DELAY_SEC + (1.0 - occupancy_probability) * (
+                    MAX_ON_DELAY_SEC - MIN_ON_DELAY_SEC
+                )
+            else:
+                on_delay_sec = MAX_ON_DELAY_SEC
+            off_delay_sec = MIN_OFF_DELAY_SEC + occupancy_probability * (MAX_OFF_DELAY_SEC - MIN_OFF_DELAY_SEC)
+            last_on_delay_sec = on_delay_sec
+            last_off_delay_sec = off_delay_sec
+
+            # ON/OFF signals are both delay-based using continuous occupied/empty duration.
+            for zone_key, occupied in fan_status.items():
+                if occupied:
+                    zone_empty_since[zone_key] = None
+                    if zone_occupied_since[zone_key] is None:
+                        zone_occupied_since[zone_key] = now_ts
+
+                    occupied_elapsed_sec = now_ts - zone_occupied_since[zone_key]
+                    if not device_statuses[zone_key] and occupied_elapsed_sec >= on_delay_sec:
+                        print(
+                            f"{zone_key} reached ON threshold ({occupied_elapsed_sec:.2f}s >= {on_delay_sec:.2f}s). Sending ON.",
+                            flush=True
+                        )
+                        if queue_status_update(zone_key, turn_on=True):
+                            device_statuses[zone_key] = True
+                else:
+                    zone_occupied_since[zone_key] = None
+                    if zone_empty_since[zone_key] is None:
+                        zone_empty_since[zone_key] = now_ts
+
+                    empty_elapsed_sec = now_ts - zone_empty_since[zone_key]
+                    if device_statuses[zone_key] and empty_elapsed_sec >= off_delay_sec:
+                        print(
+                            f"{zone_key} reached OFF threshold ({empty_elapsed_sec:.2f}s >= {off_delay_sec:.2f}s). Sending OFF.",
+                            flush=True
+                        )
+                        if queue_status_update(zone_key, turn_on=False):
+                            device_statuses[zone_key] = False
 
             last_fan_status = fan_status
             last_person_boxes = person_boxes
@@ -239,10 +380,20 @@ def run_detection(lab_id, preferred_camera_index):
         # Draw zones and show status
         for zone_key, scaled in scaled_zones.items():
             zx1, zy1, zx2, zy2 = scaled
-            color = (0, 255, 0) if fan_status[zone_key] else (0, 0, 255)
+            device_on = device_statuses[zone_key]
+            zone_occupied = fan_status[zone_key]
+            color = (0, 255, 0) if device_on else (0, 0, 255)
             cv2.rectangle(frame, (zx1, zy1), (zx2, zy2), color, 2)
 
-            status_text = f"{zone_key}: ON" if fan_status[zone_key] else f"{zone_key}: OFF"
+            status_text = f"{zone_key}: {'ON' if device_on else 'OFF'}"
+            if not zone_occupied and device_on and zone_empty_since[zone_key] is not None:
+                empty_elapsed = time.time() - zone_empty_since[zone_key]
+                wait_remaining = max(0, int(last_off_delay_sec - empty_elapsed))
+                status_text += f" ({wait_remaining}s)"
+            elif zone_occupied and not device_on and zone_occupied_since[zone_key] is not None:
+                occupied_elapsed = time.time() - zone_occupied_since[zone_key]
+                wait_remaining = max(0, int(last_on_delay_sec - occupied_elapsed))
+                status_text += f" ({wait_remaining}s)"
             # Ensure text is not drawn outside image if zy1 is near 0
             text_y = zy1 - 10 if zy1 > 20 else min(zy1, zy2) + 20
             
