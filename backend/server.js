@@ -17,7 +17,7 @@ const DB_SCHEMA = (process.env.DB_SCHEMA || "public").replace(/[^a-zA-Z0-9_]/g, 
 let previousDeviceStates = new Map();
 
 // ESP32 IP Configuration
-const ESP32_IP = "http://10.20.3.109";
+const ESP32_IP = "http://10.68.240.109";
 
 //for hello5 dashboard
 function toBooleanStatus(status) {
@@ -104,14 +104,14 @@ async function triggerESP32(deviceId, state) {
 
   try {
     if (state) {
-      endpoint = `${ESP32_IP}/off`;
-      console.log(`Turning fan ${deviceId} OFF (ESP32 logic inverted)`);
+      endpoint = `${ESP32_IP}/on${deviceId}`;
+      console.log(`Turning fan ${deviceId} ON`);
     } else {
-      endpoint = `${ESP32_IP}/on`;
-      console.log(`Turning fan ${deviceId} ON (ESP32 logic inverted)`);
+      endpoint = `${ESP32_IP}/off${deviceId}`;
+      console.log(`Turning fan ${deviceId} OFF`);
     }
 
-    const response = await axios.get(endpoint, { timeout: 5000 });
+    const response = await axios.get(endpoint, { timeout: 10000 });
 
     return {
       sent: true,
@@ -417,6 +417,36 @@ app.post("/api/devices", async (req, res) => {
 
 let detectionProcess = null;
 let currentDetectionStatus = {};
+
+app.get("/api/cameras", async (req, res) => {
+  try {
+    const { exec } = require('child_process');
+    const isWindows = os.platform() === 'win32';
+    const venvPython = isWindows
+      ? path.join(__dirname, '../occupancy_detection/venv/Scripts/python.exe')
+      : path.join(__dirname, '../occupancy_detection/venv/bin/python');
+
+    const pythonExecutable = fs.existsSync(venvPython) ? venvPython : (isWindows ? 'python' : 'python3');
+    const scriptPath = path.join(__dirname, '../occupancy_detection/list_cameras.py');
+
+    exec(`"${pythonExecutable}" "${scriptPath}"`, { cwd: path.join(__dirname, '../occupancy_detection') }, (error, stdout, stderr) => {
+      if (error) {
+        console.error("Error running list_cameras.py:", error, stderr);
+        return res.status(500).json({ message: "Failed to read cameras", error: error.message });
+      }
+      try {
+        const result = JSON.parse(stdout);
+        res.json(result);
+      } catch (parseError) {
+        console.error("Error parsing camera list JSON:", parseError);
+        res.status(500).json({ message: "Invalid response from camera process" });
+      }
+    });
+  } catch (error) {
+    console.error("Error listing cameras:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
 
 app.get("/api/zones", async (req, res) => {
   try {
