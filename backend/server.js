@@ -20,7 +20,7 @@ const ENABLE_ESP32 = process.env.ENABLE_ESP32 !== "false";
 let previousDeviceStates = new Map();
 
 // ESP32 IP Configuration
-const ESP32_IP = "http://10.109.157.109";
+const ESP32_IP = "http://10.68.240.109";
 
 // Function to trigger ESP32
 async function triggerESP32(deviceId, state) {
@@ -38,7 +38,7 @@ async function triggerESP32(deviceId, state) {
 
   try {
     const response = await axios.get(endpoint, {
-      timeout: 5000,
+      timeout: 10000,
       validateStatus: () => true
     });
 
