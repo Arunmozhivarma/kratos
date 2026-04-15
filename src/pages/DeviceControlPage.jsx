@@ -140,6 +140,15 @@ export default function DeviceControlPage() {
     }
   };
 
+  if (selectedLabId === '33' || localStorage.getItem('kratos_labId') === '33') {
+    return (
+      <div className="space-y-8 p-4 flex flex-col items-center justify-center min-h-[50vh]">
+        <h1 className="text-3xl font-bold text-gray-500">Access Restricted</h1>
+        <p className="text-gray-600">Manual device control is disabled for the Hello5 lab.</p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-8 p-4">
       <div className="flex flex-col items-start justify-between gap-4 md:flex-row md:items-center">

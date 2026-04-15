@@ -26,7 +26,15 @@ export default function Sidebar({ collapsed }) {
         )}
       </div>
       <nav className="space-y-2">
-        {navItems.map((item) => {
+        {navItems
+          .filter(item => {
+            if (item.name === 'Device Control') {
+              const labId = localStorage.getItem('kratos_lab_id') || localStorage.getItem('kratos_labId');
+              return labId !== '33';
+            }
+            return true;
+          })
+          .map((item) => {
           const Icon = icons[item.icon];
           return (
             <NavLink

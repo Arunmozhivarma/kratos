@@ -19,20 +19,115 @@ let previousDeviceStates = new Map();
 // ESP32 IP Configuration
 const ESP32_IP = "http://10.20.3.109";
 
+//for hello5 dashboard
+function toBooleanStatus(status) {
+  return status === "ON" || status === true || status === "true";
+}
+
+function calculateDurationHours(startTime, endTime) {
+  const start = new Date(startTime);
+  const end = new Date(endTime);
+  return (end - start) / (1000 * 60 * 60);
+}
+
+function calculateEnergyKwh(currentAmps, durationHours) {
+  return (5 * Number(currentAmps) * Number(durationHours)) / 1000;
+}
+
+async function handleEnergyConsumptionChange(deviceId, labId, deviceStatus, current) {
+  if (Number(labId) !== 33) {
+    return;
+  }
+
+  // when ON -> insert a new session row
+  if (deviceStatus) {
+    // avoid duplicate open rows if device keeps sending ON repeatedly
+    const existingOpenSession = await pool.query(
+      `SELECT id
+       FROM ${DB_SCHEMA}.energy_consumption
+       WHERE device_id = $1
+         AND lab_id = $2
+         AND end_time IS NULL
+       ORDER BY start_time DESC
+       LIMIT 1`,
+      [deviceId, labId]
+    );
+
+    if (existingOpenSession.rows.length === 0) {
+      await pool.query(
+        `INSERT INTO ${DB_SCHEMA}.energy_consumption
+         (device_id, lab_id, reading, start_time, created_at)
+         VALUES ($1, $2, $3, NOW(), NOW())`,
+        [deviceId, labId, current]
+      );
+    }
+
+    return;
+  }
+
+  // when OFF -> close latest open session
+  const openSessionResult = await pool.query(
+    `SELECT id, start_time, reading
+     FROM ${DB_SCHEMA}.energy_consumption
+     WHERE device_id = $1
+       AND lab_id = $2
+       AND end_time IS NULL
+     ORDER BY start_time DESC
+     LIMIT 1`,
+    [deviceId, labId]
+  );
+
+  if (openSessionResult.rows.length === 0) {
+    return;
+  }
+
+  const openSession = openSessionResult.rows[0];
+  const endTime = new Date();
+  const durationHours = calculateDurationHours(openSession.start_time, endTime);
+  const readingToUse =
+    current !== undefined && current !== null ? Number(current) : Number(openSession.reading || 0);
+  const energyKwh = calculateEnergyKwh(readingToUse, durationHours);
+
+  await pool.query(
+    `UPDATE ${DB_SCHEMA}.energy_consumption
+   SET end_time = $1,
+       duration_hours = $2,
+       energy_kwh = $3
+   WHERE id = $4`,
+    [endTime, durationHours, energyKwh, openSession.id]
+  );
+}
+
 // Function to trigger ESP32
 async function triggerESP32(deviceId, state) {
+  let endpoint = "";
+
   try {
     if (state) {
+      endpoint = `${ESP32_IP}/off`;
       console.log(`Turning fan ${deviceId} OFF (ESP32 logic inverted)`);
-      await axios.get(`${ESP32_IP}/off`, { timeout: 5000 });
     } else {
+      endpoint = `${ESP32_IP}/on`;
       console.log(`Turning fan ${deviceId} ON (ESP32 logic inverted)`);
-      await axios.get(`${ESP32_IP}/on`, { timeout: 5000 });
     }
+
+    const response = await axios.get(endpoint, { timeout: 5000 });
+
+    return {
+      sent: true,
+      endpoint,
+      httpStatus: response.status
+    };
   } catch (err) {
     const message = `ESP32 request failed for ${endpoint}: ${err.message}`;
     console.error(message);
-    throw new Error(message);
+
+    return {
+      sent: false,
+      endpoint,
+      httpStatus: err.response?.status || null,
+      reason: err.message
+    };
   }
 }
 
@@ -40,17 +135,18 @@ async function triggerESP32(deviceId, state) {
 async function pollDatabaseForChanges() {
   try {
     const result = await pool.query(
-      `SELECT device_id, device_status FROM ${DB_SCHEMA}.devices`
+      `SELECT device_id, lab_id, device_status FROM ${DB_SCHEMA}.devices`
     );
 
     for (const device of result.rows) {
-      const prev = previousDeviceStates.get(device.device_id);
+      const key = `${device.lab_id}_${device.device_id}`;
+      const prev = previousDeviceStates.get(key);
 
       if (prev !== undefined && prev !== device.device_status) {
         await triggerESP32(device.device_id, device.device_status);
       }
 
-      previousDeviceStates.set(device.device_id, device.device_status);
+      previousDeviceStates.set(key, device.device_status);
     }
   } catch (err) {
     console.error("Polling error:", err);
@@ -63,12 +159,13 @@ setInterval(pollDatabaseForChanges, 2000);
 async function initializeDeviceStates() {
   try {
     const result = await pool.query(
-      `SELECT device_id, device_status FROM ${DB_SCHEMA}.devices`
+      `SELECT device_id, lab_id, device_status FROM ${DB_SCHEMA}.devices`
     );
 
-    result.rows.forEach(d =>
-      previousDeviceStates.set(d.device_id, d.device_status)
-    );
+    result.rows.forEach(d => {
+      const key = `${d.lab_id}_${d.device_id}`;
+      previousDeviceStates.set(key, d.device_status);
+    });
   } catch (err) {
     console.error(err);
   }
@@ -82,6 +179,29 @@ app.get("/", (req, res) => {
 });
 
 // ================= BASIC APIs =================
+
+app.get("/api/devices/:labId", async (req, res) => {
+  try {
+    const { labId } = req.params;
+
+    const result = await pool.query(
+      `SELECT 
+         device_id,
+         lab_id,
+         device_status,
+         COALESCE(sensor_reading, 0) AS sensor_reading
+       FROM ${DB_SCHEMA}.devices
+       WHERE lab_id = $1
+       ORDER BY device_id`,
+      [labId]
+    );
+
+    res.json(result.rows);
+  } catch (error) {
+    console.error("Error fetching devices:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
 
 app.get("/api/departments", async (req, res) => {
   try {
@@ -567,34 +687,27 @@ app.get("/api/labs/:labId/zone-integrity", async (req, res) => {
 app.get("/api/energy-consumption/:labId", async (req, res) => {
   try {
     const { labId } = req.params;
-    if (labId === 'test-lab') {
-      // Return mock energy consumption data for test lab
-      const mockData = [];
-      const today = new Date();
-      for (let i = 6; i >= 0; i--) {
-        const date = new Date(today);
-        date.setDate(date.getDate() - i);
-        mockData.push({
-          date: date.toISOString().split('T')[0],
-          total: (Math.random() * 10 + 5).toFixed(2) // Random energy between 5-15 kWh
-        });
-      }
-      return res.json(mockData);
-    }
 
     const result = await pool.query(
-      `SELECT date, SUM(energy_kwh) total
+      `SELECT
+         DATE(created_at) AS date,
+         COALESCE(SUM(energy_kwh), 0) AS total
        FROM ${DB_SCHEMA}.energy_consumption
-       WHERE lab_id=$1 GROUP BY date`,
+       WHERE lab_id = $1
+       GROUP BY DATE(created_at)
+       ORDER BY DATE(created_at)`,
       [labId]
     );
+
     res.json(result.rows);
   } catch (error) {
     console.error("Error fetching energy consumption:", error);
-    res.status(500).json({ message: "Error" });
+    res.status(500).json({
+      message: "Error fetching energy consumption",
+      error: error.message
+    });
   }
 });
-
 // ================= DEVICE UPDATE =================
 
 app.post("/api/esp32/control", async (req, res) => {
@@ -663,28 +776,150 @@ app.post("/api/devices/update", async (req, res) => {
       });
     }
 
-    console.log("Received device update:", { device_id, lab_id, status, current });
-    const deviceStatus = status === "ON";
+    const normalizedDeviceId = Number(device_id);
+    const normalizedLabId = Number(lab_id);
+    const normalizedCurrent = Number(current);
+    const deviceStatus = toBooleanStatus(status);
 
-    const result = await pool.query(
-      `UPDATE ${DB_SCHEMA}.devices
-       SET device_status = $1,
-           sensor_reading = $2
-       WHERE device_id = $3 AND lab_id = $4`,
-      [deviceStatus, current, device_id, lab_id]
-    );
+    console.log("Received device update:", {
+      device_id: normalizedDeviceId,
+      lab_id: normalizedLabId,
+      status: deviceStatus ? "ON" : "OFF",
+      current: normalizedCurrent
+    });
 
-    if (result.rowCount === 0) {
-      return res.status(404).json({
-        message: "Device not found for this lab"
-      });
+    const client = await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      const previousDeviceResult = await client.query(
+        `SELECT device_status
+         FROM ${DB_SCHEMA}.devices
+         WHERE device_id = $1 AND lab_id = $2
+         LIMIT 1`,
+        [normalizedDeviceId, normalizedLabId]
+      );
+
+      if (previousDeviceResult.rowCount === 0) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({
+          message: "Device not found for this lab"
+        });
+      }
+
+      const previousStatus = previousDeviceResult.rows[0].device_status;
+
+      await client.query(
+        `UPDATE ${DB_SCHEMA}.devices
+         SET device_status = $1,
+             sensor_reading = $2
+         WHERE device_id = $3 AND lab_id = $4`,
+        [deviceStatus, normalizedCurrent, normalizedDeviceId, normalizedLabId]
+      );
+
+      // only log session changes when state actually changes
+      if (previousStatus !== deviceStatus && normalizedLabId === 33) {
+        if (deviceStatus) {
+          const existingOpenSession = await client.query(
+            `SELECT id
+             FROM ${DB_SCHEMA}.energy_consumption
+             WHERE device_id = $1
+               AND lab_id = $2
+               AND end_time IS NULL
+             ORDER BY start_time DESC
+             LIMIT 1`,
+            [normalizedDeviceId, normalizedLabId]
+          );
+
+          if (existingOpenSession.rowCount === 0) {
+            await client.query(
+              `INSERT INTO ${DB_SCHEMA}.energy_consumption
+               (device_id, lab_id, reading, start_time, created_at)
+               VALUES ($1, $2, $3, NOW(), NOW())`,
+              [normalizedDeviceId, normalizedLabId, normalizedCurrent]
+            );
+          }
+        } else {
+          const openSessionResult = await client.query(
+            `SELECT id, start_time, reading
+             FROM ${DB_SCHEMA}.energy_consumption
+             WHERE device_id = $1
+               AND lab_id = $2
+               AND end_time IS NULL
+             ORDER BY start_time DESC
+             LIMIT 1`,
+            [normalizedDeviceId, normalizedLabId]
+          );
+
+          if (openSessionResult.rowCount > 0) {
+            const openSession = openSessionResult.rows[0];
+            const endTime = new Date();
+            const durationHours = calculateDurationHours(openSession.start_time, endTime);
+            const readingToUse = normalizedCurrent ?? Number(openSession.reading || 0);
+            const energyKwh = calculateEnergyKwh(readingToUse, durationHours);
+
+            await client.query(
+              `UPDATE ${DB_SCHEMA}.energy_consumption
+              SET end_time = $1,
+              duration_hours = $2,
+              energy_kwh = $3
+              WHERE id = $4`,
+              [endTime, durationHours, energyKwh, openSession.id]
+            );
+          }
+        }
+      }
+
+      // optional: update lab_dashboard live values for Hello5
+      if (normalizedLabId === 33) {
+        const dashboardStats = await client.query(
+          `SELECT
+             COALESCE(SUM(CASE WHEN device_status = true THEN 5 * COALESCE(sensor_reading, 0) ELSE 0 END), 0) AS current_power_watts,
+             COUNT(*) FILTER (WHERE device_status = true) AS active_devices
+           FROM ${DB_SCHEMA}.devices
+           WHERE lab_id = $1`,
+          [normalizedLabId]
+        );
+
+        const todayEnergy = await client.query(
+          `SELECT COALESCE(SUM(energy_kwh), 0) AS energy_today_kwh
+           FROM ${DB_SCHEMA}.energy_consumption
+           WHERE lab_id = $1
+             AND DATE(created_at) = CURRENT_DATE`,
+          [normalizedLabId]
+        );
+
+        await client.query(
+          `INSERT INTO ${DB_SCHEMA}.lab_dashboard
+           (lab_id, current_power_watts, energy_today_kwh, active_devices, last_updated)
+           VALUES ($1, $2, $3, $4, NOW())
+           ON CONFLICT (lab_id)
+           DO UPDATE SET
+             current_power_watts = EXCLUDED.current_power_watts,
+             energy_today_kwh = EXCLUDED.energy_today_kwh,
+             active_devices = EXCLUDED.active_devices,
+             last_updated = NOW()`,
+          [
+            normalizedLabId,
+            Number(dashboardStats.rows[0].current_power_watts || 0),
+            Number(todayEnergy.rows[0].energy_today_kwh || 0),
+            Number(dashboardStats.rows[0].active_devices || 0)
+          ]
+        );
+      }
+
+      await client.query("COMMIT");
+      res.status(200).json({ message: "Updated successfully" });
+    } catch (txError) {
+      await client.query("ROLLBACK");
+      throw txError;
+    } finally {
+      client.release();
     }
-
-    res.status(200).json({ message: "Updated successfully" });
-
   } catch (error) {
     console.error("Error updating device:", error);
-    res.status(500).json({ message: "Server error" });
+    res.status(500).json({ message: "Server error", error: error.message });
   }
 });
 
@@ -694,224 +929,331 @@ app.get("/api/analytics-summary/:labId", async (req, res) => {
   try {
     const { labId } = req.params;
 
-    // Use consistent data based on labId to ensure same results every time
-    const labHash = Math.abs(labId.split('').reduce((a, b) => a + b.charCodeAt(0), 0)) % 100;
+    const [dashboardResult, sessionsResult, peakResult, yesterdayResult] = await Promise.all([
+      pool.query(
+        `SELECT
+           COALESCE(current_power_watts, 0) AS current_power_watts,
+           COALESCE(energy_today_kwh, 0) AS energy_today_kwh,
+           COALESCE(active_devices, 0) AS active_devices
+         FROM ${DB_SCHEMA}.lab_dashboard
+         WHERE lab_id = $1
+         LIMIT 1`,
+        [labId]
+      ),
+      pool.query(
+        `SELECT COUNT(*) AS sessions_today
+         FROM ${DB_SCHEMA}.energy_consumption
+         WHERE lab_id = $1
+           AND DATE(created_at) = CURRENT_DATE`,
+        [labId]
+      ),
+      pool.query(
+        `SELECT COALESCE(MAX(5 * reading), 0) AS peak_power
+         FROM ${DB_SCHEMA}.energy_consumption
+         WHERE lab_id = $1
+           AND DATE(created_at) = CURRENT_DATE`,
+        [labId]
+      ),
+      pool.query(
+        `SELECT COALESCE(SUM(energy_kwh), 0) AS yesterday_energy
+         FROM ${DB_SCHEMA}.energy_consumption
+         WHERE lab_id = $1
+           AND DATE(created_at) = CURRENT_DATE - INTERVAL '1 day'`,
+        [labId]
+      )
+    ]);
 
-    if (labId === 'test-lab') {
-      return res.json([
-        { metric: 'Total Energy Today', value: '12.5 kWh', change: '+2.3%' },
-        { metric: 'Active Devices', value: '3', change: '0%' },
-        { metric: 'Peak Power', value: '450W', change: '-5.2%' },
-        { metric: 'Average Temperature', value: '24°C', change: '+0.5°C' }
-      ]);
-    }
+    const dashboard = dashboardResult.rows[0] || {
+      current_power_watts: 0,
+      energy_today_kwh: 0,
+      active_devices: 0
+    };
 
-    // Consistent data for real labs based on labId hash
-    const baseEnergy = 10 + (labHash % 10);
-    const baseDevices = 3 + (labHash % 5);
-    const basePower = 400 + (labHash % 300);
-    const baseTemp = 20 + (labHash % 8);
+    const energyToday = Number(dashboard.energy_today_kwh || 0);
+    const yesterdayEnergy = Number(yesterdayResult.rows[0]?.yesterday_energy || 0);
+    const change =
+      yesterdayEnergy === 0
+        ? (energyToday === 0 ? 0 : 100)
+        : (((energyToday - yesterdayEnergy) / yesterdayEnergy) * 100);
 
     res.json([
-      { metric: 'Total Energy Today', value: `${baseEnergy.toFixed(1)} kWh`, change: `+${(labHash % 5 + 1)}.${labHash % 9}%` },
-      { metric: 'Active Devices', value: baseDevices.toString(), change: labHash % 2 === 0 ? '+1' : '0%' },
-      { metric: 'Peak Power', value: `${basePower}W`, change: labHash % 2 === 0 ? `+${labHash % 10}%` : `-${labHash % 10}%` },
-      { metric: 'Average Temperature', value: `${baseTemp}°C`, change: labHash % 2 === 0 ? `+${labHash % 3}°C` : `-${labHash % 2}°C` }
+      {
+        metric: "Total Energy Today",
+        value: `${energyToday.toFixed(3)} kWh`,
+        change: `${change >= 0 ? "+" : ""}${change.toFixed(1)}%`
+      },
+      {
+        metric: "Active Devices",
+        value: String(dashboard.active_devices || 0),
+        change: "Live"
+      },
+      {
+        metric: "Peak Power",
+        value: `${Number(peakResult.rows[0]?.peak_power || 0).toFixed(2)} W`,
+        change: "Today"
+      },
+      {
+        metric: "Sessions Today",
+        value: String(sessionsResult.rows[0]?.sessions_today || 0),
+        change: "Today"
+      }
     ]);
   } catch (error) {
     console.error("Error fetching analytics summary:", error);
-    res.status(500).json({ message: "Server error" });
+    res.status(500).json({ message: "Server error", error: error.message });
   }
 });
 
 app.get("/api/weekly-energy-cost/:labId", async (req, res) => {
   try {
     const { labId } = req.params;
-    const labHash = Math.abs(labId.split('').reduce((a, b) => a + b.charCodeAt(0), 0)) % 100;
+    const unitCost = 8; // change if needed
 
-    if (labId === 'test-lab') {
-      const data = [];
-      const today = new Date();
-      for (let i = 6; i >= 0; i--) {
-        const date = new Date(today);
-        date.setDate(date.getDate() - i);
-        data.push({
-          day: date.toLocaleDateString('en-US', { weekday: 'short' }),
-          energy: (5 + labHash % 10 + i).toFixed(2),
-          cost: (0.5 + labHash % 3 + i * 0.1).toFixed(2)
-        });
-      }
-      return res.json(data);
-    }
+    const result = await pool.query(
+      `WITH days AS (
+         SELECT generate_series(
+           CURRENT_DATE - INTERVAL '6 days',
+           CURRENT_DATE,
+           INTERVAL '1 day'
+         )::date AS day
+       )
+       SELECT
+         d.day,
+         COALESCE(SUM(ec.energy_kwh), 0) AS energy
+       FROM days d
+       LEFT JOIN ${DB_SCHEMA}.energy_consumption ec
+         ON ec.lab_id = $1
+        AND DATE(ec.created_at) = d.day
+       GROUP BY d.day
+       ORDER BY d.day`,
+      [labId]
+    );
 
-    const data = [];
-    const today = new Date();
-    for (let i = 6; i >= 0; i--) {
-      const date = new Date(today);
-      date.setDate(date.getDate() - i);
-      data.push({
-        day: date.toLocaleDateString('en-US', { weekday: 'short' }),
-        energy: (8 + labHash % 12 + i).toFixed(2),
-        cost: (1 + labHash % 4 + i * 0.2).toFixed(2)
-      });
-    }
-    res.json(data);
+    const formatted = result.rows.map((row) => {
+      const energy = Number(row.energy || 0);
+      return {
+        day: new Date(row.day).toLocaleDateString("en-US", { weekday: "short" }),
+        energy: energy.toFixed(3),
+        cost: (energy * unitCost).toFixed(2)
+      };
+    });
+
+    res.json(formatted);
   } catch (error) {
     console.error("Error fetching weekly energy cost:", error);
-    res.status(500).json({ message: "Server error" });
+    res.status(500).json({ message: "Server error", error: error.message });
   }
 });
 
 app.get("/api/six-month-consumption/:labId", async (req, res) => {
   try {
     const { labId } = req.params;
-    const labHash = Math.abs(labId.split('').reduce((a, b) => a + b.charCodeAt(0), 0)) % 100;
 
-    if (labId === 'test-lab') {
-      const data = [];
-      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
-      months.forEach((month, i) => {
-        data.push({
-          month: month,
-          consumption: (200 + labHash % 100 + i * 20).toFixed(2)
-        });
-      });
-      return res.json(data);
-    }
+    const result = await pool.query(
+      `WITH months AS (
+         SELECT generate_series(
+           date_trunc('month', CURRENT_DATE) - INTERVAL '5 months',
+           date_trunc('month', CURRENT_DATE),
+           INTERVAL '1 month'
+         )::date AS month_start
+       )
+       SELECT
+         m.month_start,
+         COALESCE(SUM(ec.energy_kwh), 0) AS consumption
+       FROM months m
+       LEFT JOIN ${DB_SCHEMA}.energy_consumption ec
+         ON ec.lab_id = $1
+        AND date_trunc('month', ec.created_at) = m.month_start
+       GROUP BY m.month_start
+       ORDER BY m.month_start`,
+      [labId]
+    );
 
-    const data = [];
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
-    months.forEach((month, i) => {
-      data.push({
-        month: month,
-        consumption: (250 + labHash % 150 + i * 25).toFixed(2)
-      });
-    });
-    res.json(data);
+    res.json(
+      result.rows.map((row) => ({
+        month: new Date(row.month_start).toLocaleDateString("en-US", { month: "short" }),
+        consumption: Number(row.consumption || 0).toFixed(3)
+      }))
+    );
   } catch (error) {
     console.error("Error fetching six month consumption:", error);
-    res.status(500).json({ message: "Server error" });
+    res.status(500).json({ message: "Server error", error: error.message });
   }
 });
 
 app.get("/api/top-energy-consumers/:labId", async (req, res) => {
   try {
     const { labId } = req.params;
-    const labHash = Math.abs(labId.split('').reduce((a, b) => a + b.charCodeAt(0), 0)) % 100;
 
-    if (labId === 'test-lab') {
-      return res.json([
-        { device: 'Fan 1', consumption: '3.2 kWh', percentage: 25 },
-        { device: 'Fan 2', consumption: '2.8 kWh', percentage: 22 },
-        { device: 'Lighting', consumption: '2.1 kWh', percentage: 16 },
-        { device: 'AC Unit', consumption: '1.9 kWh', percentage: 15 },
-        { device: 'Equipment', consumption: '2.5 kWh', percentage: 22 }
-      ]);
-    }
+    const totalResult = await pool.query(
+      `SELECT COALESCE(SUM(energy_kwh), 0) AS total_energy
+       FROM ${DB_SCHEMA}.energy_consumption
+       WHERE lab_id = $1`,
+      [labId]
+    );
 
-    res.json([
-      { device: 'Fan 1', consumption: `${(3 + labHash % 2).toFixed(1)} kWh`, percentage: 25 + labHash % 5 },
-      { device: 'Fan 2', consumption: `${(2.5 + labHash % 2).toFixed(1)} kWh`, percentage: 20 + labHash % 6 },
-      { device: 'Lighting', consumption: `${(2 + labHash % 2).toFixed(1)} kWh`, percentage: 15 + labHash % 5 },
-      { device: 'AC Unit', consumption: `${(1.8 + labHash % 2).toFixed(1)} kWh`, percentage: 12 + labHash % 5 },
-      { device: 'Equipment', consumption: `${(2.2 + labHash % 2).toFixed(1)} kWh`, percentage: 18 + labHash % 6 }
-    ]);
+    const totalEnergy = Number(totalResult.rows[0]?.total_energy || 0);
+
+    const result = await pool.query(
+      `SELECT
+         device_id,
+         COALESCE(SUM(energy_kwh), 0) AS consumption
+       FROM ${DB_SCHEMA}.energy_consumption
+       WHERE lab_id = $1
+       GROUP BY device_id
+       ORDER BY consumption DESC
+       LIMIT 5`,
+      [labId]
+    );
+
+    res.json(
+      result.rows.map((row) => {
+        const consumption = Number(row.consumption || 0);
+        return {
+          device: `Device ${row.device_id}`,
+          consumption: `${consumption.toFixed(3)} kWh`,
+          percentage: totalEnergy === 0 ? 0 : Number(((consumption / totalEnergy) * 100).toFixed(1))
+        };
+      })
+    );
   } catch (error) {
     console.error("Error fetching top energy consumers:", error);
-    res.status(500).json({ message: "Server error" });
+    res.status(500).json({ message: "Server error", error: error.message });
   }
 });
 
 app.get("/api/peak-usage-hours/:labId", async (req, res) => {
   try {
     const { labId } = req.params;
-    const labHash = Math.abs(labId.split('').reduce((a, b) => a + b.charCodeAt(0), 0)) % 100;
 
-    if (labId === 'test-lab') {
-      return res.json([
-        { hour: '8:00', usage: 450 },
-        { hour: '10:00', usage: 680 },
-        { hour: '12:00', usage: 720 },
-        { hour: '14:00', usage: 650 },
-        { hour: '16:00', usage: 590 },
-        { hour: '18:00', usage: 320 }
-      ]);
-    }
+    const result = await pool.query(
+      `SELECT
+         EXTRACT(HOUR FROM start_time)::int AS hour_num,
+         COALESCE(SUM(5 * reading), 0) AS usage
+       FROM ${DB_SCHEMA}.energy_consumption
+       WHERE lab_id = $1
+         AND start_time >= NOW() - INTERVAL '30 days'
+       GROUP BY hour_num
+       ORDER BY hour_num`,
+      [labId]
+    );
 
-    res.json([
-      { hour: '8:00', usage: 450 + labHash % 100 },
-      { hour: '10:00', usage: 650 + labHash % 150 },
-      { hour: '12:00', usage: 700 + labHash % 200 },
-      { hour: '14:00', usage: 650 + labHash % 180 },
-      { hour: '16:00', usage: 550 + labHash % 160 },
-      { hour: '18:00', usage: 300 + labHash % 120 }
-    ]);
+    res.json(
+      result.rows.map((row) => ({
+        hour: `${String(row.hour_num).padStart(2, "0")}:00`,
+        usage: Number(row.usage || 0)
+      }))
+    );
   } catch (error) {
     console.error("Error fetching peak usage hours:", error);
-    res.status(500).json({ message: "Server error" });
+    res.status(500).json({ message: "Server error", error: error.message });
   }
 });
 
 app.get("/api/energy-comparisons/:labId", async (req, res) => {
   try {
     const { labId } = req.params;
-    const labHash = Math.abs(labId.split('').reduce((a, b) => a + b.charCodeAt(0), 0)) % 100;
+    const unitCost = 8;
 
-    if (labId === 'test-lab') {
-      return res.json([
-        { period: 'Today', consumption: 12.5, cost: 2.50, comparison: -2.3 },
-        { period: 'Yesterday', consumption: 14.8, cost: 2.96, comparison: 0 },
-        { period: 'Last Week', consumption: 89.2, cost: 17.84, comparison: 5.1 },
-        { period: 'Last Month', consumption: 376.8, cost: 75.36, comparison: 8.7 }
-      ]);
-    }
+    const result = await pool.query(
+      `SELECT
+         COALESCE(SUM(CASE WHEN DATE(created_at) = CURRENT_DATE THEN energy_kwh END), 0) AS today,
+         COALESCE(SUM(CASE WHEN DATE(created_at) = CURRENT_DATE - INTERVAL '1 day' THEN energy_kwh END), 0) AS yesterday,
+         COALESCE(SUM(CASE WHEN created_at >= CURRENT_DATE - INTERVAL '6 days' AND created_at < CURRENT_DATE + INTERVAL '1 day' THEN energy_kwh END), 0) AS last_week,
+         COALESCE(SUM(CASE WHEN created_at >= CURRENT_DATE - INTERVAL '13 days' AND created_at < CURRENT_DATE - INTERVAL '6 days' THEN energy_kwh END), 0) AS prev_week,
+         COALESCE(SUM(CASE WHEN created_at >= CURRENT_DATE - INTERVAL '29 days' AND created_at < CURRENT_DATE + INTERVAL '1 day' THEN energy_kwh END), 0) AS last_month,
+         COALESCE(SUM(CASE WHEN created_at >= CURRENT_DATE - INTERVAL '59 days' AND created_at < CURRENT_DATE - INTERVAL '29 days' THEN energy_kwh END), 0) AS prev_month
+       FROM ${DB_SCHEMA}.energy_consumption
+       WHERE lab_id = $1`,
+      [labId]
+    );
 
-    // Consistent data for real labs based on labId hash
-    const baseConsumption = 10 + (labHash % 15);
-    const baseCost = baseConsumption * 0.2;
+    const row = result.rows[0];
+
+    const calcChange = (current, previous) => {
+      const c = Number(current || 0);
+      const p = Number(previous || 0);
+      if (p === 0) return c === 0 ? 0 : 100;
+      return Number((((c - p) / p) * 100).toFixed(1));
+    };
+
+    const today = Number(row.today || 0);
+    const yesterday = Number(row.yesterday || 0);
+    const lastWeek = Number(row.last_week || 0);
+    const prevWeek = Number(row.prev_week || 0);
+    const lastMonth = Number(row.last_month || 0);
+    const prevMonth = Number(row.prev_month || 0);
 
     res.json([
       {
-        period: 'Today',
-        consumption: parseFloat((baseConsumption + labHash % 5).toFixed(1)),
-        cost: parseFloat((baseCost + labHash % 2).toFixed(2)),
-        comparison: parseFloat((labHash % 10 - 5).toFixed(1))
+        period: "Today",
+        consumption: today,
+        cost: Number((today * unitCost).toFixed(2)),
+        comparison: calcChange(today, yesterday)
       },
       {
-        period: 'Yesterday',
-        consumption: parseFloat((baseConsumption + labHash % 8).toFixed(1)),
-        cost: parseFloat((baseCost + labHash % 3).toFixed(2)),
+        period: "Yesterday",
+        consumption: yesterday,
+        cost: Number((yesterday * unitCost).toFixed(2)),
         comparison: 0
       },
       {
-        period: 'Last Week',
-        consumption: parseFloat((baseConsumption * 7 + labHash % 20).toFixed(1)),
-        cost: parseFloat((baseCost * 7 + labHash % 8).toFixed(2)),
-        comparison: parseFloat((labHash % 12 + 3).toFixed(1))
+        period: "Last Week",
+        consumption: lastWeek,
+        cost: Number((lastWeek * unitCost).toFixed(2)),
+        comparison: calcChange(lastWeek, prevWeek)
       },
       {
-        period: 'Last Month',
-        consumption: parseFloat((baseConsumption * 30 + labHash % 50).toFixed(1)),
-        cost: parseFloat((baseCost * 30 + labHash % 20).toFixed(2)),
-        comparison: parseFloat((labHash % 15 + 5).toFixed(1))
+        period: "Last Month",
+        consumption: lastMonth,
+        cost: Number((lastMonth * unitCost).toFixed(2)),
+        comparison: calcChange(lastMonth, prevMonth)
       }
     ]);
   } catch (error) {
     console.error("Error fetching energy comparisons:", error);
-    res.status(500).json({ message: "Server error" });
+    res.status(500).json({ message: "Server error", error: error.message });
   }
 });
 
 app.get("/api/power-trend/:labId", async (req, res) => {
   try {
-    const data = [];
-    const labHash = Math.abs(req.params.labId.split('').reduce((a, b) => a + b.charCodeAt(0), 0)) % 100;
-    for (let i = 0; i < 12; i++) {
-      data.push({ minute: `${i * 5}m`, power: 500 + labHash % 100 + i * 10 });
-    }
-    res.json(data);
-  } catch {
-    res.status(500).json({ message: "Error" });
+    const { labId } = req.params;
+
+    const result = await pool.query(
+      `WITH buckets AS (
+         SELECT generate_series(
+           date_trunc('minute', NOW()) - INTERVAL '55 minutes',
+           date_trunc('minute', NOW()),
+           INTERVAL '5 minutes'
+         ) AS bucket_start
+       )
+       SELECT
+         b.bucket_start,
+         COALESCE(SUM(5 * ec.reading), 0) AS power
+       FROM buckets b
+       LEFT JOIN ${DB_SCHEMA}.energy_consumption ec
+         ON ec.lab_id = $1
+        AND ec.created_at >= b.bucket_start
+        AND ec.created_at < b.bucket_start + INTERVAL '5 minutes'
+       GROUP BY b.bucket_start
+       ORDER BY b.bucket_start`,
+      [labId]
+    );
+
+    res.json(
+      result.rows.map((row) => ({
+        minute: new Date(row.bucket_start).toLocaleTimeString("en-US", {
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: false
+        }),
+        power: Number(row.power || 0).toFixed(2)
+      }))
+    );
+  } catch (error) {
+    console.error("Error fetching power trend:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
   }
 });
 

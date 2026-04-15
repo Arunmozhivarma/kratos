@@ -1,5 +1,16 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis
+} from 'recharts';
 import { getSelectedLabId } from '../data/labs';
 
 function getEnergyDisplayScale(values) {
@@ -36,7 +47,6 @@ export default function AnalyticsPage() {
       setLoading(true);
       setError('');
 
-      // Fetch all analytics data in parallel
       const [
         summaryResponse,
         weeklyResponse,
@@ -51,27 +61,23 @@ export default function AnalyticsPage() {
         fetch(`http://localhost:5000/api/peak-usage-hours/${encodeURIComponent(labId)}`)
       ]);
 
-      // Check all responses
       if (!summaryResponse.ok) throw new Error('Failed to fetch analytics summary');
       if (!weeklyResponse.ok) throw new Error('Failed to fetch weekly energy cost');
       if (!sixMonthResponse.ok) throw new Error('Failed to fetch six month consumption');
       if (!consumersResponse.ok) throw new Error('Failed to fetch top energy consumers');
       if (!peakHoursResponse.ok) throw new Error('Failed to fetch peak usage hours');
 
-      // Parse all data
       const summaryData = await summaryResponse.json();
       const weeklyData = await weeklyResponse.json();
       const sixMonthData = await sixMonthResponse.json();
       const consumersData = await consumersResponse.json();
       const peakHoursData = await peakHoursResponse.json();
 
-      // Set state
       setSummaryStats(summaryData);
       setWeeklyEnergyCostData(weeklyData);
       setSixMonthConsumptionData(sixMonthData);
       setTopEnergyConsumers(consumersData);
       setPeakUsageHours(peakHoursData);
-
     } catch (err) {
       console.error('Error fetching analytics data:', err);
       setError('Failed to load analytics data. Please try again.');
@@ -80,10 +86,10 @@ export default function AnalyticsPage() {
     }
   }, []);
 
-  // Initial fetch
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
 
   useEffect(() => {
     const handleVisibilityChange = () => {
@@ -97,7 +103,6 @@ export default function AnalyticsPage() {
   }, [fetchData]);
 
   const handleExportReport = () => {
-    // Simple export functionality
     const labId = getSelectedLabId();
     const reportData = {
       labId,
@@ -111,7 +116,6 @@ export default function AnalyticsPage() {
 
     const dataStr = JSON.stringify(reportData, null, 2);
     const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(dataStr);
-
     const exportFileDefaultName = `energy-report-lab-${labId}-${new Date().toISOString().split('T')[0]}.json`;
 
     const linkElement = document.createElement('a');
@@ -158,6 +162,7 @@ export default function AnalyticsPage() {
     energyDisplay: Number(item.energy || 0) * weeklyEnergyScale.multiplier,
     cost: Number(item.cost || 0),
   }));
+
   const sixMonthEnergyScale = getEnergyDisplayScale(
     sixMonthConsumptionData.map((item) => item.consumption)
   );
@@ -165,6 +170,7 @@ export default function AnalyticsPage() {
     ...item,
     consumptionDisplay: Number(item.consumption || 0) * sixMonthEnergyScale.multiplier,
   }));
+
   const peakHourEnergyScale = getEnergyDisplayScale(peakUsageHours.map((item) => item.usage));
   const maxPeakUsage = Math.max(...peakUsageHours.map((item) => Number(item.usage || 0)), 0);
 
@@ -184,13 +190,10 @@ export default function AnalyticsPage() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">
-        {summaryStats
-          .filter((stat) => stat.metric !== 'Average Temperature')
-          .map((stat) => (
+        {summaryStats.map((stat) => (
           <div key={stat.metric} className="card-surface p-4">
             <p className="text-sm text-gray-500">{stat.metric}</p>
             <p className="text-2xl font-bold">{stat.value}</p>
-            <p className="text-xs text-gray-400">{stat.change}</p>
           </div>
         ))}
       </div>
@@ -207,13 +210,13 @@ export default function AnalyticsPage() {
                 formatter={(value, name) => [
                   name === 'Energy'
                     ? `${Number(value).toFixed(weeklyEnergyScale.digits)} ${weeklyEnergyScale.unit}`
-                    : `$${Number(value).toFixed(6)}`,
+                    : `$${Number(value).toFixed(2)}`,
                   name,
                 ]}
               />
               <Legend />
               <Bar dataKey="energyDisplay" fill="#3B82F6" name="Energy" />
-              <Bar dataKey="cost" fill="#10B981" name="Cost ($)" />
+              <Bar dataKey="cost" fill="#10B981" name="Cost" />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -241,7 +244,7 @@ export default function AnalyticsPage() {
 
       <div className="grid gap-4 md:grid-cols-2">
         <div className="card-surface p-5">
-          <h3 className="mb-1 font-semibold">Current Highest Power Devices</h3>
+          <h3 className="mb-1 font-semibold">Top Energy Consumers</h3>
           <div className="space-y-3">
             {topEnergyConsumers.map((item) => (
               <div key={item.device}>
@@ -252,13 +255,19 @@ export default function AnalyticsPage() {
                 <div className="h-2 rounded-full bg-gray-100">
                   <div
                     className="h-2 rounded-full bg-blue-500"
-                    style={{ width: `${Math.min((parseFloat(item.consumption) / Math.max(...topEnergyConsumers.map(c => parseFloat(c.consumption)))) * 100, 100)}%` }}
+                    style={{
+                      width: `${Math.min(
+                        (Number(item.percentage || 0)),
+                        100
+                      )}%`
+                    }}
                   />
                 </div>
               </div>
             ))}
           </div>
         </div>
+
         <div className="card-surface p-5">
           <h3 className="mb-1 font-semibold">Peak Energy Hours</h3>
           <div className="space-y-3">
