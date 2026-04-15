@@ -35,7 +35,7 @@ export default function EnergyChartCard({ data }) {
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={chartData}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-            <XAxis dataKey="date" />
+            <XAxis dataKey="date" tick={false} axisLine={false} tickLine={false} />
             <YAxis />
             <Tooltip
               formatter={(value) => [

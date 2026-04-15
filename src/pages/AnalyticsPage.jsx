@@ -199,30 +199,6 @@ export default function AnalyticsPage() {
       </div>
 
       <div className="card-surface p-5">
-        <h3 className="mb-1 font-semibold">Weekly Energy and Cost Analysis</h3>
-        <div style={{ height: '320px', width: '100%', border: '1px solid #ccc', backgroundColor: '#f9f9f9' }}>
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={weeklyChartData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-              <XAxis dataKey="day" />
-              <YAxis />
-              <Tooltip
-                formatter={(value, name) => [
-                  name === 'Energy'
-                    ? `${Number(value).toFixed(weeklyEnergyScale.digits)} ${weeklyEnergyScale.unit}`
-                    : `$${Number(value).toFixed(2)}`,
-                  name,
-                ]}
-              />
-              <Legend />
-              <Bar dataKey="energyDisplay" fill="#3B82F6" name="Energy" />
-              <Bar dataKey="cost" fill="#10B981" name="Cost" />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      <div className="card-surface p-5">
         <h3 className="mb-1 font-semibold">Six Month Energy Consumption Trend</h3>
         <div style={{ height: '320px', width: '100%', border: '1px solid #ccc', backgroundColor: '#f9f9f9' }}>
           <ResponsiveContainer width="100%" height="100%">

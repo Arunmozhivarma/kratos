@@ -110,16 +110,6 @@ export default function DashboardPage() {
   }, [fetchDashboardData]);
 
   useEffect(() => {
-    const intervalId = window.setInterval(() => {
-      if (!document.hidden) {
-        fetchDashboardData();
-      }
-    }, 3000);
-
-    return () => window.clearInterval(intervalId);
-  }, [fetchDashboardData]);
-
-  useEffect(() => {
     const handleVisibilityChange = () => {
       if (!document.hidden) {
         fetchDashboardData();

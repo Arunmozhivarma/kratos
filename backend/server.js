@@ -1221,35 +1221,29 @@ app.get("/api/power-trend/:labId", async (req, res) => {
     const { labId } = req.params;
 
     const result = await pool.query(
-      `WITH buckets AS (
-         SELECT generate_series(
-           date_trunc('minute', NOW()) - INTERVAL '55 minutes',
-           date_trunc('minute', NOW()),
-           INTERVAL '5 minutes'
-         ) AS bucket_start
-       )
-       SELECT
-         b.bucket_start,
-         COALESCE(SUM(5 * ec.reading), 0) AS power
-       FROM buckets b
-       LEFT JOIN ${DB_SCHEMA}.energy_consumption ec
-         ON ec.lab_id = $1
-        AND ec.created_at >= b.bucket_start
-        AND ec.created_at < b.bucket_start + INTERVAL '5 minutes'
-       GROUP BY b.bucket_start
-       ORDER BY b.bucket_start`,
+      `SELECT
+         created_at,
+         ROUND((5 * reading)::numeric, 2) AS power
+       FROM ${DB_SCHEMA}.energy_consumption
+       WHERE lab_id = $1
+       ORDER BY created_at DESC
+       LIMIT 10`,
       [labId]
     );
 
     res.json(
-      result.rows.map((row) => ({
-        minute: new Date(row.bucket_start).toLocaleTimeString("en-US", {
-          hour: "2-digit",
-          minute: "2-digit",
-          hour12: false
-        }),
-        power: Number(row.power || 0).toFixed(2)
-      }))
+      result.rows
+        .reverse()
+        .map((row) => ({
+          minute: new Date(row.created_at).toLocaleString("en-US", {
+            month: "short",
+            day: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: false
+          }),
+          power: Number(row.power || 0)
+        }))
     );
   } catch (error) {
     console.error("Error fetching power trend:", error);
