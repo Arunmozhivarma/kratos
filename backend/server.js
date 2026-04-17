@@ -31,7 +31,7 @@ function calculateDurationHours(startTime, endTime) {
 }
 
 function calculateEnergyKwh(currentAmps, durationHours) {
-  return (5 * Number(currentAmps) * Number(durationHours)) / 1000;
+  return Number(((5 * Number(currentAmps) * Number(durationHours)) / 1000).toFixed(6));
 }
 
 async function handleEnergyConsumptionChange(deviceId, labId, deviceStatus, current) {
@@ -899,8 +899,13 @@ app.post("/api/devices/update", async (req, res) => {
             const openSession = openSessionResult.rows[0];
             const endTime = new Date();
             const durationHours = calculateDurationHours(openSession.start_time, endTime);
-            const readingToUse = normalizedCurrent ?? Number(openSession.reading || 0);
-            const energyKwh = calculateEnergyKwh(readingToUse, durationHours);
+            const readingToUse = Number(openSession.reading || 0);
+            const energyKwh = Number(calculateEnergyKwh(readingToUse, durationHours).toFixed(6));
+            console.log("ENERGY DEBUG:", {
+            current: readingToUse,
+            duration: durationHours,
+            energy: energyKwh
+            });
 
             await client.query(
               `UPDATE ${DB_SCHEMA}.energy_consumption
@@ -925,13 +930,13 @@ app.post("/api/devices/update", async (req, res) => {
           [normalizedLabId]
         );
 
-        const todayEnergy = await client.query(
-          `SELECT COALESCE(SUM(energy_kwh), 0) AS energy_today_kwh
-           FROM ${DB_SCHEMA}.energy_consumption
-           WHERE lab_id = $1
-             AND DATE(created_at) = CURRENT_DATE`,
-          [normalizedLabId]
-        );
+        const todayEnergy = await pool.query(
+  `SELECT COALESCE(SUM(energy_kwh), 0) AS energy_today_kwh
+   FROM ${DB_SCHEMA}.energy_consumption
+   WHERE lab_id = $1
+     AND end_time IS NOT NULL`,
+  [normalizedLabId]
+);
 
         await client.query(
           `INSERT INTO ${DB_SCHEMA}.lab_dashboard
@@ -1066,7 +1071,7 @@ app.get("/api/weekly-energy-cost/:labId", async (req, res) => {
        FROM days d
        LEFT JOIN ${DB_SCHEMA}.energy_consumption ec
          ON ec.lab_id = $1
-        AND DATE(ec.created_at) = d.day
+        AND DATE(ec.end_time) = d.day
        GROUP BY d.day
        ORDER BY d.day`,
       [labId]
@@ -1200,8 +1205,8 @@ app.get("/api/energy-comparisons/:labId", async (req, res) => {
 
     const result = await pool.query(
       `SELECT
-         COALESCE(SUM(CASE WHEN DATE(created_at) = CURRENT_DATE THEN energy_kwh END), 0) AS today,
-         COALESCE(SUM(CASE WHEN DATE(created_at) = CURRENT_DATE - INTERVAL '1 day' THEN energy_kwh END), 0) AS yesterday,
+         COALESCE(SUM(CASE WHEN DATE(end_time) = CURRENT_DATE THEN energy_kwh END), 0) AS today,
+         COALESCE(SUM(CASE WHEN DATE(end_time) = CURRENT_DATE - INTERVAL '1 day' THEN energy_kwh END), 0) AS yesterday,
          COALESCE(SUM(CASE WHEN created_at >= CURRENT_DATE - INTERVAL '6 days' AND created_at < CURRENT_DATE + INTERVAL '1 day' THEN energy_kwh END), 0) AS last_week,
          COALESCE(SUM(CASE WHEN created_at >= CURRENT_DATE - INTERVAL '13 days' AND created_at < CURRENT_DATE - INTERVAL '6 days' THEN energy_kwh END), 0) AS prev_week,
          COALESCE(SUM(CASE WHEN created_at >= CURRENT_DATE - INTERVAL '29 days' AND created_at < CURRENT_DATE + INTERVAL '1 day' THEN energy_kwh END), 0) AS last_month,
