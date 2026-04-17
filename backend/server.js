@@ -17,7 +17,7 @@ const DB_SCHEMA = (process.env.DB_SCHEMA || "public").replace(/[^a-zA-Z0-9_]/g, 
 let previousDeviceStates = new Map();
 
 // ESP32 IP Configuration
-const ESP32_IP = "http://10.68.240.109";
+const ESP32_IP = "http://10.192.37.109";
 
 //for hello5 dashboard
 function toBooleanStatus(status) {
@@ -630,10 +630,23 @@ app.post("/api/stop-detection", async (req, res) => {
 
 app.get("/api/detection-status", async (req, res) => {
   try {
-    res.json(currentDetectionStatus);
-  } catch (error) {
-    console.error("Error getting detection status:", error);
-    res.status(500).json({ message: "Server error" });
+    const result = await pool.query(
+      `SELECT device_id, device_status 
+       FROM ${DB_SCHEMA}.devices 
+       WHERE lab_id = $1`,
+      [req.query.labId]
+    );
+
+    const status = {};
+
+    result.rows.forEach(row => {
+      const key = `configBox1_${row.device_id}`;
+      status[key] = row.device_status;
+    });
+
+    res.json(status);
+  } catch (err) {
+    res.status(500).json({ message: "Error" });
   }
 });
 
