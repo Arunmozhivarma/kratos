@@ -17,54 +17,64 @@ KRATOS reduces unnecessary energy consumption in institutional and commercial sp
 
 ## System Architecture
 
-                     +----------------------+
-                     |     IP/USB Camera    |
-                     +----------+-----------+
-                                |
-                                v
-                   +-------------------------+
-                   | YOLOv8 + OpenCV         |
-                   | Occupancy Detection     |
-                   +-----------+-------------+
-                               |
-                               v
-                   +-------------------------+
-                   | Occupancy Processing    |
-                   | Zone Mapping            |
-                   +-----------+-------------+
-                               |
-                               v
-                   +-------------------------+
-                   | Random Forest Model     |
-                   | Occupancy Prediction    |
-                   +-----------+-------------+
-                               |
-                               v
-                   +-------------------------+
-                   | Node.js Backend         |
-                   | Decision Engine         |
-                   +-----+-------------+-----+
-                         |             |
-          Stores Data    |             | Sends Commands
-                         |             |
-                         v             v
-              +----------------+   +----------------+
-              | PostgreSQL     |   | ESP32          |
-              | (Supabase)     |   | Relay Control  |
-              +----------------+   +--------+-------+
-                                            |
-                                            v
-                                 +----------------------+
-                                 | Lights / Fans        |
-                                 | Electrical Devices   |
-                                 +----------------------+
+## System Architecture
 
-                                           ^
-                                           |
-                                +----------------------+
-                                | React Dashboard      |
-                                | Monitoring & Control |
-                                +----------------------+ 
+                 +----------------------+
+                 |     IP/USB Camera    |
+                 +----------+-----------+
+                            |
+                            v
+                  +----------------------+
+                  |   YOLOv8 + OpenCV    |
+                  | Occupancy Detection  |
+                  +----------+-----------+
+                             |
+                             v
+                  +----------------------+
+                  |   Zone Mapping &     |
+                  | Occupancy Processing |
+                  +----------+-----------+
+                             |
+                             v
+                  +----------------------+
+                  |   Random Forest      |
+                  | Occupancy Prediction |
+                  +----------+-----------+
+                             |
+                             v
+                  +----------------------+
+                  |    Node.js Backend   |
+                  |   Decision Engine    |
+                  +----+------------+----+
+                       |            |
+          REST APIs    |            | Device Commands
+                       |            |
+                       v            v
+              +---------------+   +----------------+
+              | React         |   | ESP32          |
+              | Dashboard     |   | Relay Control  |
+              +---------------+   +-------+--------+
+                       |                   |
+                       | REST APIs         |
+                       +---------+---------+
+                                 |
+                                 v
+                       +------------------+
+                       | PostgreSQL       |
+                       | (Supabase)       |
+                       +------------------+
+
+                                         |
+                                         v
+                                +------------------+
+                                | Relay Module     |
+                                +--------+---------+
+                                         |
+                                         v
+                                +------------------+
+                                | Lights / Fans    |
+                                +------------------+
+
 
 
 ## Tech Stack
